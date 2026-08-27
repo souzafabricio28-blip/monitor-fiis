@@ -1,9 +1,11 @@
 [server]
 headless = true
-port = $PORT
+port = 8501
 address = "0.0.0.0"
 enableCORS = false
 enableXsrfProtection = false
+websocketTimeout = 86400
 
 [browser]
 gatherUsageStats = false
+serverAddress = "0.0.0.0"

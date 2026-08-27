@@ -291,6 +291,58 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+        
+        if self.use_pg:
+            self._migrate_sqlite_if_needed()
+    
+    def _migrate_sqlite_if_needed(self):
+        """Migra dados do SQLite local para PostgreSQL se o PG estiver vazio"""
+        import os
+        pg_conn = self._get_conn()
+        pg_cur = pg_conn.cursor()
+        pg_cur.execute("SELECT COUNT(*) FROM carteira")
+        if pg_cur.fetchone()[0] > 0:
+            pg_conn.close()
+            return
+        
+        sqlite_path = "fii_data.db"
+        if not os.path.exists(sqlite_path):
+            pg_conn.close()
+            return
+        
+        try:
+            sl_conn = sqlite3.connect(sqlite_path)
+            sl_cur = sl_conn.cursor()
+            
+            sl_cur.execute("SELECT * FROM carteira")
+            rows = sl_cur.fetchall()
+            for row in rows:
+                pg_cur.execute(
+                    "INSERT INTO carteira (ticker, quantidade, preco_compra, data_compra) VALUES (%s, %s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
+                    row
+                )
+            
+            sl_cur.execute("SELECT ticker, data, preco FROM cotacoes")
+            rows = sl_cur.fetchall()
+            for row in rows:
+                pg_cur.execute(
+                    "INSERT INTO cotacoes (ticker, data, preco) VALUES (%s, %s, %s) ON CONFLICT (ticker, data) DO NOTHING",
+                    row
+                )
+            
+            sl_cur.execute("SELECT ticker, preco_alvo, data_adicionado, notas FROM watchlist")
+            rows = sl_cur.fetchall()
+            for row in rows:
+                pg_cur.execute(
+                    "INSERT INTO watchlist (ticker, preco_alvo, data_adicionado, notas) VALUES (%s, %s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
+                    row
+                )
+            
+            pg_conn.commit()
+            sl_conn.close()
+            pg_conn.close()
+        except Exception as e:
+            pg_conn.close()
     
     def obter_carteira(self) -> pd.DataFrame:
         conn = self._get_conn()
