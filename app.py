@@ -4,6 +4,7 @@ Interface web com Streamlit
 """
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -518,9 +519,7 @@ def calcular_score(dados: dict) -> float:
 def main():
     """Função principal do dashboard"""
     
-    # Debug info
-    if os.environ.get("RENDER"):
-        st.info(f"🔵 Rodando no Render | DATABASE_URL: {'Sim' if DATABASE_URL else 'Não'} | USE_POSTGRES: {USE_POSTGRES}")
+    st_autorefresh(interval=120000, key="datarefresh")
     
     # Header
     st.markdown('<h1 class="main-header">🏠 Monitor de FIIs</h1>', unsafe_allow_html=True)
