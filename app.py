@@ -224,7 +224,8 @@ class DatabaseManager:
     def _get_conn(self):
         if self.use_pg:
             import psycopg2
-            return psycopg2.connect(DATABASE_URL)
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
         else:
             return sqlite3.connect(self.db_path)
     
@@ -517,6 +518,10 @@ def calcular_score(dados: dict) -> float:
 def main():
     """Função principal do dashboard"""
     
+    # Debug info
+    if os.environ.get("RENDER"):
+        st.info(f"🔵 Rodando no Render | DATABASE_URL: {'Sim' if DATABASE_URL else 'Não'} | USE_POSTGRES: {USE_POSTGRES}")
+    
     # Header
     st.markdown('<h1 class="main-header">🏠 Monitor de FIIs</h1>', unsafe_allow_html=True)
     st.markdown("---")
@@ -532,7 +537,13 @@ def main():
     if "api" not in st.session_state:
         st.session_state.api = Investidor10API()
     if "db" not in st.session_state:
-        st.session_state.db = DatabaseManager()
+        try:
+            st.session_state.db = DatabaseManager()
+            if USE_POSTGRES:
+                st.success("✅ Conectado ao PostgreSQL")
+        except Exception as e:
+            st.error(f"Erro ao conectar no banco: {e}")
+            st.stop()
     
     # Dashboard
     if opcao == "📊 Dashboard":
@@ -1726,4 +1737,9 @@ def exibir_configuracoes():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.error(f"Erro fatal: {e}")
+        import traceback
+        st.code(traceback.format_exc())
