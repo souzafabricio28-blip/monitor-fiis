@@ -4,6 +4,7 @@ Autenticação do dashboard (dados sensíveis de negócio).
 Credenciais somente por variáveis de ambiente / Streamlit secrets:
   AUTH_USER      (opcional, padrão: admin)
   AUTH_PASSWORD  (obrigatório em produção com Neon/Postgres)
+  AUTH_PASSWORD_ALT  (opcional — segunda senha de acesso)
 """
 
 from __future__ import annotations
@@ -117,7 +118,7 @@ def _estilo_tela_login():
     )
 
 
-def _render_recuperacao_senha(user_esperado: str, senha_esperada: str, agora: float) -> None:
+def _render_recuperacao_senha(user_esperado: str, senhas_esperadas: list[str], agora: float) -> None:
     _estilo_tela_login()
     st.markdown(
         """
@@ -146,7 +147,11 @@ def _render_recuperacao_senha(user_esperado: str, senha_esperada: str, agora: fl
             st.warning("Aguarde antes de solicitar outro e-mail.")
         elif email_autorizado(email):
             try:
-                enviar_credenciais(email.strip(), user_esperado, senha_esperada or "")
+                enviar_credenciais(
+                    email.strip(),
+                    user_esperado,
+                    senhas_esperadas[0] if senhas_esperadas else "",
+                )
                 st.session_state["recovery_ultimo_envio"] = agora
                 st.success("E-mail enviado! Verifique sua caixa de entrada e spam.")
             except EmailRecoveryError as exc:
@@ -164,9 +169,9 @@ def _render_recuperacao_senha(user_esperado: str, senha_esperada: str, agora: fl
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _render_tela_login(user_esperado: str, senha_esperada: str, agora: float) -> None:
+def _render_tela_login(user_esperado: str, senhas_esperadas: list[str], agora: float) -> None:
     if st.session_state.get("mostrar_recuperacao_senha"):
-        _render_recuperacao_senha(user_esperado, senha_esperada, agora)
+        _render_recuperacao_senha(user_esperado, senhas_esperadas, agora)
         return
 
     _estilo_tela_login()
@@ -191,7 +196,7 @@ def _render_tela_login(user_esperado: str, senha_esperada: str, agora: float) ->
 
     if entrar:
         falhas = int(st.session_state.get("auth_falhas") or 0)
-        if _usuario_ok(usuario, user_esperado) and _senha_ok(senha, senha_esperada):
+        if _usuario_ok(usuario, user_esperado) and _senha_ok(senha, senhas_esperadas):
             st.session_state["autenticado"] = True
             st.session_state["auth_user"] = user_esperado
             st.session_state["auth_expira_em"] = agora + SESSAO_SEGUNDOS
@@ -216,16 +221,25 @@ def _render_tela_login(user_esperado: str, senha_esperada: str, agora: float) ->
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _credenciais() -> tuple[str, Optional[str]]:
+def _credenciais() -> tuple[str, list[str]]:
     user = (
         os.environ.get("AUTH_USER")
         or _secret("AUTH_USER")
         or "admin"
     ).strip()
-    password = os.environ.get("AUTH_PASSWORD") or _secret("AUTH_PASSWORD")
-    if password:
-        password = str(password).strip()
-    return user, password or None
+    return user, _senhas_esperadas()
+
+
+def _senhas_esperadas() -> list[str]:
+    senhas: list[str] = []
+    for chave in ("AUTH_PASSWORD", "AUTH_PASSWORD_ALT"):
+        valor = os.environ.get(chave) or _secret(chave)
+        if not valor:
+            continue
+        senha = str(valor).strip()
+        if senha and senha not in senhas:
+            senhas.append(senha)
+    return senhas
 
 
 def _secret(chave: str) -> Optional[str]:
@@ -244,13 +258,20 @@ def auth_obrigatorio() -> bool:
         or ambiente == "production"
         or os.environ.get("RENDER")
         or os.environ.get("RENDER_SERVICE_ID")
+        or os.environ.get("RENDER_EXTERNAL_URL")
     )
 
 
-def _senha_ok(informada: str, esperada: str) -> bool:
-    return hmac.compare_digest(
-        informada.encode("utf-8"),
-        esperada.encode("utf-8"),
+def _senha_ok(informada: str, esperadas: str | list[str]) -> bool:
+    if isinstance(esperadas, str):
+        candidatas = [esperadas]
+    else:
+        candidatas = list(esperadas)
+    informada_b = informada.encode("utf-8")
+    return any(
+        hmac.compare_digest(informada_b, esperada.encode("utf-8"))
+        for esperada in candidatas
+        if esperada
     )
 
 
@@ -288,27 +309,10 @@ def exigir_login() -> bool:
     Mostra tela de login se necessário.
     Retorna True se o usuário pode acessar o app.
     """
-    user_esperado, senha_esperada = _credenciais()
+    user_esperado, senhas_esperadas = _credenciais()
 
-    if not senha_esperada:
-        if auth_obrigatorio():
-            st.error(
-                "Acesso bloqueado: defina AUTH_PASSWORD no Render "
-                "(Environment Variables). Sem isso o painel não abre em produção."
-            )
-            st.info(
-                "No Render → seu serviço → Environment → Add:\n\n"
-                "- `AUTH_USER` = seu usuário\n"
-                "- `AUTH_PASSWORD` = senha forte"
-            )
-            st.stop()
-            return False
-        # Local sem senha: permite desenvolvimento, mas avisa
-        st.sidebar.warning("Dev local sem AUTH_PASSWORD — não use assim em produção.")
-        return True
-
-    if auth_obrigatorio() and not _credenciais_producao_validas(
-        user_esperado, senha_esperada
+    if auth_obrigatorio() and senhas_esperadas and not _credenciais_producao_validas(
+        user_esperado, senhas_esperadas[0]
     ):
         st.error(
             "Acesso bloqueado: em produção, defina AUTH_USER personalizado e "
@@ -316,6 +320,27 @@ def exigir_login() -> bool:
         )
         st.stop()
         return False
+
+    if not senhas_esperadas:
+        if auth_obrigatorio():
+            _estilo_tela_login()
+            st.error(
+                "Login indisponível: configure AUTH_PASSWORD no Render "
+                "(Environment → Add Environment Variable)."
+            )
+            st.info(
+                "No Render → monitor-fiis → **Environment**, adicione:\n\n"
+                "- `AUTH_USER` = Fabricio\n"
+                "- `AUTH_PASSWORD` = senha forte\n"
+                "- `AUTH_PASSWORD_ALT` = 030990 (opcional)\n\n"
+                "Depois: **Manual Deploy** → Deploy latest commit."
+            )
+            _render_tela_login(user_esperado, [], time.time())
+            st.stop()
+            return False
+        # Local sem senha: permite desenvolvimento, mas avisa
+        st.sidebar.warning("Dev local sem AUTH_PASSWORD — não use assim em produção.")
+        return True
 
     if esta_autenticado():
         return True
@@ -329,7 +354,7 @@ def exigir_login() -> bool:
         st.stop()
         return False
 
-    _render_tela_login(user_esperado, senha_esperada, agora)
+    _render_tela_login(user_esperado, senhas_esperadas, agora)
 
     st.stop()
     return False

@@ -21,3 +21,4 @@ wait_deploy.py
 debug*.py
 ACESSO*.txt
 CREDENCIAIS*.txt
+RENDER_ENV.txt

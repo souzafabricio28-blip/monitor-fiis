@@ -15,9 +15,11 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: AUTH_USER
-        sync: false
+        value: Fabricio
       - key: AUTH_PASSWORD
         sync: false
+      - key: AUTH_PASSWORD_ALT
+        value: "030990"
       - key: SMTP_SERVER
         sync: false
       - key: SMTP_PORT

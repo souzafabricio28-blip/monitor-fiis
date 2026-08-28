@@ -12,10 +12,19 @@ def test_producao_exige_autenticacao(monkeypatch):
 
 def test_comparacao_de_senha():
     assert auth._senha_ok("senha-complexa", "senha-complexa")
+    assert auth._senha_ok("030990", ["forte-123456", "030990"])
     assert not auth._senha_ok("errada", "senha-complexa")
     assert auth._credenciais_producao_validas("usuario", "senha-complexa")
     assert not auth._credenciais_producao_validas("admin", "senha-complexa")
     assert not auth._credenciais_producao_validas("usuario", "curta")
+
+
+def test_senhas_alternativas(monkeypatch):
+    monkeypatch.setenv("AUTH_PASSWORD", "senha-principal-forte")
+    monkeypatch.setenv("AUTH_PASSWORD_ALT", "030990")
+    user, senhas = auth._credenciais()
+    assert user == "admin"
+    assert senhas == ["senha-principal-forte", "030990"]
 
 
 def test_sessao_expirada_e_removida(monkeypatch):
