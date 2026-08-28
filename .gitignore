@@ -12,3 +12,4 @@ relatorios/
 *.xlsx
 *.pdf
 .DS_Store
+.streamlit/secrets.toml

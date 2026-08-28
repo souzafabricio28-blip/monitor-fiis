@@ -6,6 +6,7 @@ Usa db + market_data + investidor10 + criterios.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 
 import pandas as pd
@@ -14,6 +15,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
+from auth import esta_autenticado, exigir_login, logout
 from criterios import avaliar_ativo, avaliar_diversificacao
 from db import USE_POSTGRES, DatabaseManager
 from fiis_database import FIIS_POPULARES
@@ -123,6 +125,9 @@ def status_badge(status: str) -> str:
 
 
 def main():
+    # Login antes de qualquer dado de negócio
+    exigir_login()
+
     st_autorefresh(interval=120_000, key="datarefresh")
 
     st.markdown('<h1 class="main-header">Monitor de FIIs</h1>', unsafe_allow_html=True)
@@ -132,6 +137,12 @@ def main():
     )
 
     st.sidebar.title("Menu")
+    if esta_autenticado():
+        st.sidebar.caption(f"Logado: {st.session_state.get('auth_user', 'admin')}")
+        if st.sidebar.button("Sair", width="stretch"):
+            logout()
+            st.rerun()
+
     opcao = st.sidebar.radio(
         "Navegação",
         [
@@ -151,7 +162,8 @@ def main():
         try:
             st.session_state.db = DatabaseManager()
         except Exception as e:
-            st.error(f"Erro ao conectar no banco: {e}")
+            st.error("Erro ao conectar no banco. Verifique DATABASE_URL no ambiente.")
+            st.caption(str(e))
             st.stop()
 
     rotas = {
@@ -593,6 +605,10 @@ def exibir_comparacao():
 
 def exibir_configuracoes():
     st.header("Configurações")
+    st.info(
+        "Segredos (senha do app, DATABASE_URL, tokens) ficam só no Render/Neon — "
+        "nunca no Git. Preferir TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no ambiente."
+    )
     db = st.session_state.db
     cfg_email = db.get_config("email", {"ativar": False, "destino": ""})
     cfg_tg = db.get_config(
@@ -600,6 +616,9 @@ def exibir_configuracoes():
         {"ativar": False, "token": "", "chat_id": ""},
     )
     cfg_agenda = db.get_config("agendamento", {"horario": "18:00"})
+
+    token_env = bool(os.environ.get("TELEGRAM_TOKEN"))
+    chat_env = bool(os.environ.get("TELEGRAM_CHAT_ID"))
 
     st.subheader("Alertas por Email")
     with st.form("config_email"):
@@ -613,20 +632,25 @@ def exibir_configuracoes():
             st.success("Email salvo no banco.")
 
     st.subheader("Telegram")
+    if token_env or chat_env:
+        st.success("Credenciais Telegram detectadas nas variáveis de ambiente (recomendado).")
     with st.form("config_telegram"):
         ativar_tg = st.checkbox("Ativar Telegram", value=bool(cfg_tg.get("ativar")))
-        token = st.text_input("Token do Bot", value=cfg_tg.get("token", ""), type="password")
-        chat_id = st.text_input("Chat ID", value=cfg_tg.get("chat_id", ""))
+        st.caption("Deixe em branco para manter o valor atual. Não exibimos o token salvo.")
+        token = st.text_input("Token do Bot (novo)", value="", type="password")
+        chat_id = st.text_input("Chat ID (novo)", value="")
         if st.form_submit_button("Salvar Telegram"):
+            novo_token = token.strip() or cfg_tg.get("token", "")
+            novo_chat = chat_id.strip() or cfg_tg.get("chat_id", "")
             db.set_config(
                 "telegram",
                 {
                     "ativar": ativar_tg,
-                    "token": token.strip(),
-                    "chat_id": chat_id.strip(),
+                    "token": novo_token,
+                    "chat_id": novo_chat,
                 },
             )
-            st.success("Telegram salvo no banco.")
+            st.success("Preferências Telegram salvas (token não é exibido na tela).")
 
     st.subheader("Agendamento (referência)")
     with st.form("config_agendamento"):
@@ -635,13 +659,16 @@ def exibir_configuracoes():
             db.set_config("agendamento", {"horario": horario.strip()})
             st.success("Horário salvo. Use o scheduler/cron no deploy para executar.")
 
-    st.subheader("Ambiente")
+    st.subheader("Ambiente (sem segredos)")
     st.code(
         json.dumps(
             {
                 "postgres": USE_POSTGRES,
-                "email": db.get_config("email"),
-                "telegram_ativado": bool(db.get_config("telegram", {}).get("ativar")),
+                "login_ativo": esta_autenticado(),
+                "email_destino": (db.get_config("email") or {}).get("destino", ""),
+                "telegram_ativado": bool((db.get_config("telegram") or {}).get("ativar"))
+                or token_env,
+                "telegram_via_env": token_env and chat_env,
                 "agendamento": db.get_config("agendamento"),
             },
             indent=2,

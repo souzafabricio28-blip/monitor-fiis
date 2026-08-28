@@ -52,8 +52,30 @@ python migrate_db.py
 ## Deploy (Render)
 
 - `Procfile` e `render.yaml` sobem o Streamlit
-- Configure `DATABASE_URL` no painel do Render (nunca no Git)
+- Configure no painel do Render (nunca no Git):
+  - `DATABASE_URL` — Neon
+  - `AUTH_USER` / `AUTH_PASSWORD` — login do painel (obrigatório com Neon)
 - Troque a senha do Neon se ela já apareceu em commits antigos
+
+## Segurança (dados de negócio)
+
+- Repo **privado** no GitHub
+- Login com usuário/senha antes de ver carteira (`auth.py`)
+- Em produção (Postgres/Neon), sem `AUTH_PASSWORD` o app **não abre**
+- Bloqueio temporário após 5 tentativas erradas
+- Segredos só em variáveis de ambiente do Render / `.env` local
+- Tokens do Telegram não são reexibidos na tela de configurações
+- HTTPS pelo Render; Neon com `sslmode=require`
+
+Checklist rápido no Render → Environment:
+
+| Variável | Exemplo |
+|----------|---------|
+| `DATABASE_URL` | `postgresql://...sslmode=require` |
+| `AUTH_USER` | `seuusuario` |
+| `AUTH_PASSWORD` | senha longa e única |
+| `TELEGRAM_TOKEN` | (opcional) |
+| `TELEGRAM_CHAT_ID` | (opcional) |
 
 ## Critérios do gestor (aba Critérios)
 

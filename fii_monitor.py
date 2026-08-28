@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Monitor de FIIs - Fundos Imobiliários Brasileiros
 ===================================================
@@ -1065,8 +1065,11 @@ class FIIMonitor:
         opcao = input("\nEscolha: ").strip()
         
         if opcao == "1":
-            print("\nConfiguração atual:")
-            print(json.dumps(self.config, indent=2, ensure_ascii=False))
+            cfg_safe = json.loads(json.dumps(self.config))
+            if "email" in cfg_safe and "senha_app" in cfg_safe["email"]:
+                cfg_safe["email"]["senha_app"] = "***" if cfg_safe["email"]["senha_app"] else ""
+            print("\nConfiguração atual (segredos ocultos):")
+            print(json.dumps(cfg_safe, indent=2, ensure_ascii=False))
         
         elif opcao == "2":
             print("\nConfigurar alertas:")
