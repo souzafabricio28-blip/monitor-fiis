@@ -1,0 +1,26 @@
+{
+  "fiis": [
+    {
+      "ticker": "EXEMPLO11",
+      "quantidade": 10,
+      "preco_compra": 10.00
+    }
+  ],
+  "alertas": {
+    "dy_minimo": 8.0,
+    "dy_maximo": 20.0,
+    "variacao_preco": 5.0
+  },
+  "email": {
+    "ativar": false,
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "email_remetente": "seu_email@gmail.com",
+    "email_destinatario": "seu_email@gmail.com",
+    "senha_app": "sua_senha_de_app"
+  },
+  "relatorio": {
+    "formato": "html",
+    "pasta": "relatorios"
+  }
+}
