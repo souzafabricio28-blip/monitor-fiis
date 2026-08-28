@@ -157,40 +157,34 @@ def opcao_comparar():
 def opcao_pdf():
     """Gera relatório PDF"""
     print("\n📄 Gerar Relatório PDF")
-    
+
     from pdf_report import FiiPDFReport
-    from fii_monitor import FIIMonitor
-    
-    monitor = FIIMonitor()
-    analise = monitor.analyzer.analisar_carteira()
-    
+    from portfolio import analisar_carteira
+
+    analise = analisar_carteira()
     if 'erro' in analise:
         print(f"❌ {analise['erro']}")
         return
-    
+
     report = FiiPDFReport()
     arquivo = report.criar_relatorio(analise)
-    
     print(f"✅ Relatório salvo: {arquivo}")
 
 
 def opcao_excel():
     """Exporta dados para Excel"""
     print("\n📊 Exportar para Excel")
-    
+
     from excel_export import FiiExcelExport
-    from fii_monitor import FIIMonitor
-    
-    monitor = FIIMonitor()
-    analise = monitor.analyzer.analisar_carteira()
-    
+    from portfolio import analisar_carteira
+
+    analise = analisar_carteira()
     if 'erro' in analise:
         print(f"❌ {analise['erro']}")
         return
-    
+
     exporter = FiiExcelExport()
     arquivo = exporter.exportar_carteira(analise)
-    
     print(f"✅ Arquivo salvo: {arquivo}")
 
 

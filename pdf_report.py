@@ -75,12 +75,14 @@ class FiiPDFReport:
         self.pdf.set_font("Arial", "", 12)
         self.pdf.set_text_color(80, 80, 80)
         
+        valor_atual = dados.get('valor_atual', dados.get('total_atual', 0))
+        lucro = dados.get('lucro', valor_atual - dados.get('total_investido', 0))
         metricas = [
             ("Total Investido", f"R$ {dados.get('total_investido', 0):.2f}"),
-            ("Valor Atual", f"R$ {dados.get('valor_atual', 0):.2f}"),
-            ("Lucro/Prejuízo", f"R$ {dados.get('lucro', 0):.2f}"),
+            ("Valor Atual", f"R$ {valor_atual:.2f}"),
+            ("Lucro/Prejuizo", f"R$ {lucro:.2f}"),
             ("Rendimento Mensal", f"R$ {dados.get('rendimento_mensal', 0):.2f}"),
-            ("Rendimento Anual", f"R$ {dados.get('rendimento_anual', 0):.2f}"),
+            ("Rendimento Anual", f"R$ {dados.get('rendimento_anual', dados.get('rendimento_mensal', 0) * 12):.2f}"),
         ]
         
         for titulo, valor in metricas:
@@ -118,14 +120,17 @@ class FiiPDFReport:
             self.pdf.set_text_color(80, 80, 80)
             self.pdf.set_font("Arial", "", 10)
             
+            lucro = fii.get('lucro', fii.get('lucro_prejuizo', 0))
+            lucro_pct = fii.get('lucro_pct', fii.get('lucro_prejuizo_pct', 0))
+            dy = fii.get('dy', fii.get('dy_anual', 0))
             dados_fii = [
                 ("Quantidade", f"{fii.get('quantidade', 0)} cotas"),
-                ("Preço Compra", f"R$ {fii.get('preco_compra', 0):.2f}"),
-                ("Preço Atual", f"R$ {fii.get('preco_atual', 0):.2f}"),
+                ("Preco Compra", f"R$ {fii.get('preco_compra', 0):.2f}"),
+                ("Preco Atual", f"R$ {fii.get('preco_atual', 0):.2f}"),
                 ("Valor Investido", f"R$ {fii.get('valor_investido', 0):.2f}"),
                 ("Valor Atual", f"R$ {fii.get('valor_atual', 0):.2f}"),
-                ("Lucro/Prejuízo", f"R$ {fii.get('lucro', 0):.2f} ({fii.get('lucro_pct', 0):.2f}%)"),
-                ("DY Anual", f"{fii.get('dy', 0):.2f}%"),
+                ("Lucro/Prejuizo", f"R$ {lucro:.2f} ({lucro_pct:.2f}%)"),
+                ("DY Anual", f"{dy:.2f}%"),
                 ("Rendimento Mensal", f"R$ {fii.get('rendimento_mensal', 0):.2f}"),
             ]
             
@@ -146,7 +151,7 @@ class FiiPDFReport:
         self.pdf.ln(5)
         
         fiis = dados.get('fiis', [])
-        total = dados.get('valor_atual', 0)
+        total = dados.get('valor_atual', dados.get('total_atual', 0))
         
         if not fiis or total == 0:
             return

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Monitor de FIIs - Fundos Imobiliários Brasileiros
 ===================================================
@@ -387,46 +387,11 @@ class FiiDataFetcher:
     
     @staticmethod
     def calcular_dy(ticker: str) -> Optional[Dict]:
-        """Calcula o Dividend Yield de um FII."""
+        """Calcula o Dividend Yield de um FII (timezone-safe)."""
         try:
-            symbol = f"{ticker}.SA"
-            fii = yf.Ticker(symbol)
-            
-            # Obtém dividendos dos últimos 12 meses
-            dividendos = fii.dividends
-            if dividendos.empty:
-                return None
-            
-            # Filtra últimos 12 meses
-            data_limite = datetime.now() - timedelta(days=365)
-            dividendos_12m = dividendos[dividendos.index >= data_limite]
-            
-            if dividendos_12m.empty:
-                return None
-            
-            total_dividendos = dividendos_12m.sum()
-            
-            # Obtém preço atual
-            historico = fii.history(period="1d")
-            if historico.empty:
-                return None
-            
-            preco_atual = historico['Close'].iloc[-1]
-            
-            # Calcula DY anual
-            dy_anual = (total_dividendos / preco_atual) * 100
-            
-            # Calcula DY mensal médio
-            dy_mensal = dy_anual / 12
-            
-            return {
-                'ticker': ticker,
-                'dy_anual': dy_anual,
-                'dy_mensal': dy_mensal,
-                'total_dividendos_12m': total_dividendos,
-                'preco_atual': preco_atual,
-                'data_calculo': datetime.now().strftime('%Y-%m-%d')
-            }
+            from market_data import calcular_dy as _calcular_dy
+
+            return _calcular_dy(ticker)
         except Exception as e:
             logger.error(f"Erro ao calcular DY de {ticker}: {e}")
             return None
@@ -440,71 +405,15 @@ class PortfolioAnalyzer:
         self.fetcher = FiiDataFetcher()
     
     def analisar_carteira(self) -> Dict:
-        """Realiza análise completa da carteira."""
-        carteira = self.db.obter_carteira()
-        
-        if carteira.empty:
-            return {'erro': 'Carteira vazia'}
-        
-        analise = {
-            'total_investido': 0,
-            'total_atual': 0,
-            'total_recebido': 0,
-            'fiis': [],
-            'data_analise': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        
-        for _, fii in carteira.iterrows():
-            ticker = fii['ticker']
-            quantidade = fii['quantidade']
-            preco_compra = fii['preco_compra']
-            
-            # Busca cotação atual
-            cotacao = self.fetcher.buscar_cotacao_atual(ticker)
-            
-            if cotacao:
-                preco_atual = cotacao['preco_atual']
-                valor_investido = quantidade * preco_compra
-                valor_atual = quantidade * preco_atual
-                lucro_prejuizo = valor_atual - valor_investido
-                lucro_prejuizo_pct = (lucro_prejuizo / valor_investido) * 100
-                
-                # Busca dividendos
-                dy_info = self.fetcher.calcular_dy(ticker)
-                dividendos_recebidos = 0
-                if dy_info:
-                    dividendos_recebidos = quantidade * dy_info['total_dividendos_12m']
-                
-                analise['total_investido'] += valor_investido
-                analise['total_atual'] += valor_atual
-                analise['total_recebido'] += dividendos_recebidos
-                
-                analise['fiis'].append({
-                    'ticker': ticker,
-                    'quantidade': quantidade,
-                    'preco_compra': preco_compra,
-                    'preco_atual': preco_atual,
-                    'valor_investido': valor_investido,
-                    'valor_atual': valor_atual,
-                    'lucro_prejuizo': lucro_prejuizo,
-                    'lucro_prejuizo_pct': lucro_prejuizo_pct,
-                    'dy_anual': dy_info['dy_anual'] if dy_info else 0,
-                    'dy_mensal': dy_info['dy_mensal'] if dy_info else 0,
-                    'dividendos_recebidos': dividendos_recebidos
-                })
-                
-                # Salva cotação no banco
-                self.db.salvar_cotacao(ticker, cotacao['data'], preco_atual)
-        
-        # Calcula rentabilidade total
-        if analise['total_investido'] > 0:
-            analise['rentabilidade'] = ((analise['total_atual'] - analise['total_investido']) / analise['total_investido']) * 100
-            analise['rentabilidade_com_dividendos'] = ((analise['total_atual'] + analise['total_recebido'] - analise['total_investido']) / analise['total_investido']) * 100
-        else:
-            analise['rentabilidade'] = 0
-            analise['rentabilidade_com_dividendos'] = 0
-        
-        return analise
+        """Realiza análise completa da carteira (chaves compatíveis com PDF/Excel)."""
+        try:
+            from db import DatabaseManager as SharedDB
+            from portfolio import analisar_carteira as _analisar
+
+            return _analisar(SharedDB())
+        except Exception as e:
+            logger.error(f"Erro na análise da carteira: {e}")
+            return {"erro": str(e)}
     
     def gerar_relatorio_html(self, analise: Dict, pasta: str = "relatorios") -> str:
         """Gera relatório HTML da carteira."""
@@ -615,10 +524,18 @@ class PortfolioAnalyzer:
         html_content = template.render(
             data=analise['data_analise'],
             total_investido=analise['total_investido'],
-            total_atual=analise['total_atual'],
-            total_recebido=analise['total_recebido'],
-            rentabilidade=analise['rentabilidade'],
-            fiis=analise['fiis']
+            total_atual=analise.get('total_atual', analise.get('valor_atual', 0)),
+            total_recebido=analise.get('total_recebido', 0),
+            rentabilidade=analise.get('rentabilidade', 0),
+            fiis=[
+                {
+                    **fii,
+                    "lucro_prejuizo": fii.get("lucro_prejuizo", fii.get("lucro", 0)),
+                    "lucro_prejuizo_pct": fii.get("lucro_prejuizo_pct", fii.get("lucro_pct", 0)),
+                    "dy_anual": fii.get("dy_anual", fii.get("dy", 0)),
+                }
+                for fii in analise.get("fiis", [])
+            ],
         )
         
         # Salva o arquivo
@@ -1054,24 +971,24 @@ class FIIMonitor:
     
     def ver_dividendos(self):
         """Exibe dividendos pagos."""
-        ticker = input("\nDigite o ticker do FII (ou pressione Enter para todos): ").upper().strip()
-        
-        dividendos = self.fetcher.buscar_dividendos(ticker if ticker else None)
-        
+        ticker = input("\nDigite o ticker do FII: ").upper().strip()
+        if not ticker:
+            print("Informe um ticker (ex: MXRF11).")
+            return
+
+        from market_data import buscar_dividendos_serie
+
+        dividendos = buscar_dividendos_serie(ticker)
         if dividendos is not None and not dividendos.empty:
-            print(f"\n Dividendos - {ticker if ticker else 'Todos os FIIs'}")
-            print("-"*50)
-            
-            # Filtra últimos 12 meses
-            data_limite = datetime.now() - timedelta(days=365)
+            print(f"\n Dividendos - {ticker}")
+            print("-" * 50)
+            data_limite = pd.Timestamp((datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d"))
             dividendos_12m = dividendos[dividendos.index >= data_limite]
-            
             if not dividendos_12m.empty:
                 for data, valor in dividendos_12m.items():
-                    print(f"{data.strftime('%d/%m/%Y')} - R$ {valor:.4f}")
-                
-                print("-"*50)
-                print(f"Total últimos 12 meses: R$ {dividendos_12m.sum():.4f}")
+                    print(f"{data.strftime('%d/%m/%Y')} - R$ {float(valor):.4f}")
+                print("-" * 50)
+                print(f"Total últimos 12 meses: R$ {float(dividendos_12m.sum()):.4f}")
             else:
                 print("Nenhum dividendo nos últimos 12 meses")
         else:

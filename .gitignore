@@ -7,3 +7,8 @@ __pycache__/
 venv/
 *.log
 investidor10_*.csv
+config.json
+relatorios/
+*.xlsx
+*.pdf
+.DS_Store

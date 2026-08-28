@@ -56,10 +56,10 @@ class FiiExcelExport:
             ],
             "Valor": [
                 f"R$ {dados.get('total_investido', 0):.2f}",
-                f"R$ {dados.get('valor_atual', 0):.2f}",
-                f"R$ {dados.get('lucro', 0):.2f}",
+                f"R$ {dados.get('valor_atual', dados.get('total_atual', 0)):.2f}",
+                f"R$ {dados.get('lucro', dados.get('total_atual', 0) - dados.get('total_investido', 0)):.2f}",
                 f"R$ {dados.get('rendimento_mensal', 0):.2f}",
-                f"R$ {dados.get('rendimento_anual', 0):.2f}",
+                f"R$ {dados.get('rendimento_anual', dados.get('rendimento_mensal', 0) * 12):.2f}",
                 f"{dados.get('dy_medio', 0):.2f}%",
                 datetime.now().strftime("%d/%m/%Y %H:%M")
             ]
@@ -80,6 +80,9 @@ class FiiExcelExport:
         
         rows = []
         for fii in fiis:
+            lucro = fii.get('lucro', fii.get('lucro_prejuizo', 0))
+            lucro_pct = fii.get('lucro_pct', fii.get('lucro_prejuizo_pct', 0))
+            dy = fii.get('dy', fii.get('dy_anual', 0))
             rows.append({
                 'Ticker': fii.get('ticker', ''),
                 'Quantidade': fii.get('quantidade', 0),
@@ -87,9 +90,9 @@ class FiiExcelExport:
                 'Preço Atual': f"R$ {fii.get('preco_atual', 0):.2f}",
                 'Valor Investido': f"R$ {fii.get('valor_investido', 0):.2f}",
                 'Valor Atual': f"R$ {fii.get('valor_atual', 0):.2f}",
-                'Lucro': f"R$ {fii.get('lucro', 0):.2f}",
-                'Lucro %': f"{fii.get('lucro_pct', 0):.2f}%",
-                'DY': f"{fii.get('dy', 0):.2f}%",
+                'Lucro': f"R$ {lucro:.2f}",
+                'Lucro %': f"{lucro_pct:.2f}%",
+                'DY': f"{dy:.2f}%",
                 'Rendimento Mensal': f"R$ {fii.get('rendimento_mensal', 0):.2f}"
             })
         
