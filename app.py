@@ -9,6 +9,13 @@ import json
 import os
 from datetime import datetime
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go

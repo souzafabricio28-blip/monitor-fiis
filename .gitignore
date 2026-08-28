@@ -19,3 +19,5 @@ fix_render.py
 trigger_deploy.py
 wait_deploy.py
 debug*.py
+ACESSO*.txt
+CREDENCIAIS*.txt
