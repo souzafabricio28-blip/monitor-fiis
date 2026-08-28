@@ -15,6 +15,13 @@ import sqlite3
 import sys
 from datetime import datetime
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 import psycopg2
 
 TABELAS = {
