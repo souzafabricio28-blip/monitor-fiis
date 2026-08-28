@@ -184,6 +184,24 @@ def _montar_carteira_enriquecida():
     return itens, analise
 
 
+_VALOR_OCULTO = "R$ ••••••"
+
+
+def _alternar_visibilidade_valores():
+    if "mostrar_valores_financeiros" not in st.session_state:
+        st.session_state.mostrar_valores_financeiros = False
+    rotulo = (
+        "Ocultar valores"
+        if st.session_state.mostrar_valores_financeiros
+        else "Mostrar valores"
+    )
+    if st.button(rotulo, key="toggle_valores_financeiros", type="secondary"):
+        st.session_state.mostrar_valores_financeiros = (
+            not st.session_state.mostrar_valores_financeiros
+        )
+        st.rerun()
+
+
 def exibir_dashboard():
     st.header("Visão Geral")
     with st.spinner("Atualizando análise única da carteira..."):
@@ -198,15 +216,27 @@ def exibir_dashboard():
     lucro_pct = analise["rentabilidade"] if lucro is not None else None
     dy_medio = analise["dy_medio"]
 
+    _alternar_visibilidade_valores()
+    mostrar_valores = st.session_state.get("mostrar_valores_financeiros", False)
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Investido", f"R$ {total_investido:,.2f}")
-    c2.metric(
-        "Valor Atual",
-        f"R$ {valor_atual:,.2f}",
-        f"{lucro_pct:+.2f}%" if lucro_pct is not None else "parcial",
-    )
-    c3.metric("Projeção Mensal", f"R$ {rendimento_mensal:,.2f}")
-    c4.metric("Proventos Registrados (12m)", f"R$ {analise['proventos_registrados']:,.2f}")
+    if mostrar_valores:
+        c1.metric("Total Investido", f"R$ {total_investido:,.2f}")
+        c2.metric(
+            "Valor Atual",
+            f"R$ {valor_atual:,.2f}",
+            f"{lucro_pct:+.2f}%" if lucro_pct is not None else "parcial",
+        )
+        c3.metric("Projeção Mensal", f"R$ {rendimento_mensal:,.2f}")
+        c4.metric(
+            "Proventos Registrados (12m)",
+            f"R$ {analise['proventos_registrados']:,.2f}",
+        )
+    else:
+        c1.metric("Total Investido", _VALOR_OCULTO)
+        c2.metric("Valor Atual", _VALOR_OCULTO)
+        c3.metric("Projeção Mensal", _VALOR_OCULTO)
+        c4.metric("Proventos Registrados (12m)", _VALOR_OCULTO)
 
     if not itens:
         st.info("Carteira vazia. Adicione FIIs na aba Carteira.")
