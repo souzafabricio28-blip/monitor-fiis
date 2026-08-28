@@ -13,7 +13,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
 from auth import esta_autenticado, exigir_login, logout
 from criterios import avaliar_ativo, avaliar_diversificacao
@@ -21,7 +20,9 @@ from db import USE_POSTGRES, DatabaseManager
 from fiis_database import FIIS_POPULARES
 from investidor10 import Investidor10API
 from market_data import buscar_dados_completos
-from portfolio import resumo_criterios
+from portfolio import analisar_carteira, resumo_criterios
+from rebalanceamento import gerar_plano, registrar_plano_no_banco
+from scoring import calcular_score
 
 st.set_page_config(
     page_title="Monitor de FIIs",
@@ -69,49 +70,6 @@ st.markdown(
 )
 
 
-def calcular_score(dados: dict) -> float:
-    score = 50
-    dy = dados.get("dy", 0) or 0
-    if dy >= 12:
-        score += 15
-    elif dy >= 10:
-        score += 10
-    elif dy >= 8:
-        score += 5
-    elif dy < 6:
-        score -= 10
-
-    pvp = dados.get("p_vp", 0) or 0
-    if 0.8 <= pvp <= 1.0:
-        score += 12
-    elif 0.7 <= pvp < 0.8:
-        score += 8
-    elif pvp > 1.2:
-        score -= 5
-
-    vac = dados.get("vacancia", 0) or 0
-    if vac < 5:
-        score += 10
-    elif vac < 10:
-        score += 5
-    elif vac > 20:
-        score -= 10
-
-    pl = dados.get("patrimonio", 0) or 0
-    if pl > 1_000_000_000:
-        score += 8
-    elif pl > 500_000_000:
-        score += 5
-
-    setor = dados.get("setor", "") or ""
-    if setor in ["Logístico", "Tijolo", "Logística/Galpão", "Shopping"]:
-        score += 5
-    elif setor == "Papel":
-        score += 3
-
-    return min(max(score, 0), 100)
-
-
 def buscar_dados_tempo_real(ticker: str) -> dict:
     return buscar_dados_completos(ticker, db=st.session_state.db, usar_cache=True)
 
@@ -128,8 +86,6 @@ def main():
     # Login antes de qualquer dado de negócio
     exigir_login()
 
-    st_autorefresh(interval=120_000, key="datarefresh")
-
     st.markdown('<h1 class="main-header">Monitor de FIIs</h1>', unsafe_allow_html=True)
     st.caption(
         f"Backend: {'PostgreSQL/Neon' if USE_POSTGRES else 'SQLite local'} · "
@@ -137,6 +93,8 @@ def main():
     )
 
     st.sidebar.title("Menu")
+    if st.sidebar.button("Atualizar dados agora", width="stretch"):
+        st.rerun()
     if esta_autenticado():
         st.sidebar.caption(f"Logado: {st.session_state.get('auth_user', 'admin')}")
         if st.sidebar.button("Sair", width="stretch"):
@@ -148,6 +106,7 @@ def main():
         [
             "Dashboard",
             "Carteira",
+            "Rebalanceamento",
             "Buscar FII",
             "Critérios",
             "Watchlist",
@@ -169,6 +128,7 @@ def main():
     rotas = {
         "Dashboard": exibir_dashboard,
         "Carteira": exibir_carteira,
+        "Rebalanceamento": exibir_rebalanceamento,
         "Buscar FII": exibir_buscar_fii,
         "Critérios": exibir_criterios,
         "Watchlist": exibir_watchlist,
@@ -179,35 +139,12 @@ def main():
 
 
 def _montar_carteira_enriquecida():
-    carteira = st.session_state.db.obter_carteira()
+    analise = analisar_carteira(st.session_state.db)
     itens = []
-    total_investido = 0.0
-    valor_atual = 0.0
-    rendimento_mensal = 0.0
-
-    if carteira.empty:
-        return itens, total_investido, valor_atual, rendimento_mensal
-
-    for _, row in carteira.iterrows():
-        ticker = row["ticker"]
-        qtd = int(row["quantidade"])
-        preco_compra = float(row["preco_compra"])
-        total_investido += qtd * preco_compra
-
-        dados = buscar_dados_tempo_real(ticker)
-        if "erro" in dados:
-            preco_atual = preco_compra
-            dy = 0.0
-            setor = "N/A"
-        else:
-            preco_atual = float(dados.get("preco_atual") or dados.get("preco") or preco_compra)
-            dy = float(dados.get("dy") or 0)
-            setor = dados.get("setor") or "N/A"
-
-        valor = qtd * preco_atual
-        valor_atual += valor
-        rendimento_mensal += valor * (dy / 100) / 12 if dy else 0
-
+    if "erro" in analise:
+        return itens, analise
+    for fii in analise["fiis"]:
+        ticker = fii["ticker"]
         av = st.session_state.db.obter_avaliacao(ticker)
         if not av:
             try:
@@ -220,36 +157,58 @@ def _montar_carteira_enriquecida():
         itens.append(
             {
                 "ticker": ticker,
-                "qtd": qtd,
-                "preco_compra": preco_compra,
-                "preco_atual": preco_atual,
-                "valor": valor,
-                "dy": dy,
-                "setor": setor,
+                "qtd": fii["quantidade"],
+                "preco_compra": fii["preco_compra"],
+                "preco_atual": fii["preco_atual"],
+                "valor": fii["valor_atual"],
+                "dy": fii["dy"],
+                "setor": (av or {}).get("dados", {}).get("setor_final") or "N/D",
                 "criterio": status_badge(resumo["status"]),
                 "criterio_status": resumo["status"],
+                "status_dados": fii["status_dados"],
+                "confianca": fii["confianca"],
+                "fonte": fii["fonte"],
+                "coletado_em": fii["coletado_em"],
+                "divergencias": "; ".join(fii["divergencias"]) or "",
+                "proventos": fii["proventos_registrados"],
+                "projecao_mensal": fii["projecao_renda_mensal"],
             }
         )
-
-    return itens, total_investido, valor_atual, rendimento_mensal
+    return itens, analise
 
 
 def exibir_dashboard():
     st.header("Visão Geral")
-    itens, total_investido, valor_atual, rendimento_mensal = _montar_carteira_enriquecida()
-    lucro = valor_atual - total_investido
-    lucro_pct = (lucro / total_investido * 100) if total_investido else 0
-    dy_medio = (rendimento_mensal * 12 / valor_atual * 100) if valor_atual else 0
+    with st.spinner("Atualizando análise única da carteira..."):
+        itens, analise = _montar_carteira_enriquecida()
+    if "erro" in analise:
+        st.info(analise["erro"])
+        return
+    total_investido = analise["total_investido"]
+    valor_atual = analise["total_atual"]
+    rendimento_mensal = analise["projecao_renda_mensal"]
+    lucro = analise["lucro"]
+    lucro_pct = analise["rentabilidade"] if lucro is not None else None
+    dy_medio = analise["dy_medio"]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Investido", f"R$ {total_investido:,.2f}")
-    c2.metric("Valor Atual", f"R$ {valor_atual:,.2f}", f"{lucro_pct:+.2f}%")
-    c3.metric("Rendimento Mensal", f"R$ {rendimento_mensal:,.2f}")
-    c4.metric("DY Anual Médio", f"{dy_medio:.2f}%")
+    c2.metric(
+        "Valor Atual",
+        f"R$ {valor_atual:,.2f}",
+        f"{lucro_pct:+.2f}%" if lucro_pct is not None else "parcial",
+    )
+    c3.metric("Projeção Mensal", f"R$ {rendimento_mensal:,.2f}")
+    c4.metric("Proventos Registrados (12m)", f"R$ {analise['proventos_registrados']:,.2f}")
 
     if not itens:
         st.info("Carteira vazia. Adicione FIIs na aba Carteira.")
         return
+    if analise["posicoes_sem_cotacao"]:
+        st.warning(
+            "Total atual parcial. Sem cotação: "
+            + ", ".join(analise["posicoes_sem_cotacao"])
+        )
 
     df = pd.DataFrame(itens)
     col1, col2 = st.columns(2)
@@ -277,9 +236,20 @@ def exibir_dashboard():
 
     st.subheader("Detalhes da Carteira")
     df["lucro"] = df["valor"] - (df["qtd"] * df["preco_compra"])
-    df["lucro_pct"] = (df["lucro"] / (df["qtd"] * df["preco_compra"]) * 100).fillna(0)
+    df["lucro_pct"] = df["lucro"] / (df["qtd"] * df["preco_compra"]) * 100
+    f1, f2 = st.columns(2)
+    setores = ["Todos"] + sorted(df["setor"].dropna().unique().tolist())
+    setor_filtro = f1.selectbox("Filtrar por setor", setores)
+    criterio_filtro = f2.selectbox(
+        "Filtrar por critério", ["Todos", "APROVADO", "REPROVADO", "N/D"]
+    )
+    exibicao = df
+    if setor_filtro != "Todos":
+        exibicao = exibicao[exibicao["setor"] == setor_filtro]
+    if criterio_filtro != "Todos":
+        exibicao = exibicao[exibicao["criterio"] == criterio_filtro]
     st.dataframe(
-        df[
+        exibicao[
             [
                 "ticker",
                 "qtd",
@@ -290,6 +260,10 @@ def exibir_dashboard():
                 "criterio",
                 "lucro",
                 "lucro_pct",
+                "status_dados",
+                "confianca",
+                "fonte",
+                "divergencias",
             ]
         ].rename(
             columns={
@@ -302,6 +276,10 @@ def exibir_dashboard():
                 "criterio": "Critério",
                 "lucro": "Lucro R$",
                 "lucro_pct": "Lucro %",
+                "status_dados": "Status Dados",
+                "confianca": "Confiança",
+                "fonte": "Fonte",
+                "divergencias": "Divergências",
             }
         ),
         width="stretch",
@@ -349,16 +327,30 @@ def exibir_dashboard():
 def exibir_carteira():
     st.header("Sua Carteira")
 
-    with st.form("adicionar_fii", clear_on_submit=True):
-        st.subheader("Adicionar FII")
-        c1, c2, c3 = st.columns(3)
+    with st.form("registrar_movimentacao", clear_on_submit=True):
+        st.subheader("Registrar movimentação")
+        c0, c1, c2, c3 = st.columns(4)
+        tipo = c0.selectbox("Tipo", ["COMPRA", "VENDA"])
         ticker = c1.text_input("Ticker", "MXRF11").upper()
         quantidade = c2.number_input("Quantidade", min_value=1, value=10)
         preco = c3.number_input("Preço (R$)", min_value=0.01, value=9.00, step=0.01)
-        if st.form_submit_button("Adicionar à Carteira", type="primary", width="stretch"):
-            st.session_state.db.adicionar_fii(ticker, int(quantidade), float(preco))
-            st.success(f"{ticker} adicionado (preço médio recalculado se já existia).")
-            st.rerun()
+        c4, c5 = st.columns(2)
+        taxas = c4.number_input("Taxas (R$)", min_value=0.0, value=0.0, step=0.01)
+        data_mov = c5.date_input("Data")
+        if st.form_submit_button("Registrar", type="primary", width="stretch"):
+            try:
+                st.session_state.db.registrar_movimentacao(
+                    ticker,
+                    tipo,
+                    int(quantidade),
+                    float(preco),
+                    float(taxas),
+                    data_mov.isoformat(),
+                )
+                st.success(f"{tipo} de {ticker} registrada e preço médio recalculado.")
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
 
     carteira = st.session_state.db.obter_carteira()
     if carteira.empty:
@@ -371,21 +363,188 @@ def exibir_carteira():
         preco_compra = float(row["preco_compra"])
         total = qtd * preco_compra
         dados = buscar_dados_tempo_real(ticker)
-        preco_atual = float(
-            dados.get("preco_atual") or dados.get("preco") or preco_compra
+        preco_valor = dados.get("preco_atual")
+        preco_atual = float(preco_valor) if preco_valor is not None else None
+        lucro = qtd * preco_atual - total if preco_atual is not None else None
+        variacao = (
+            (preco_atual - preco_compra) / preco_compra * 100
+            if preco_atual is not None and preco_compra
+            else None
         )
-        lucro = qtd * preco_atual - total
-        variacao = ((preco_atual - preco_compra) / preco_compra * 100) if preco_compra else 0
 
-        c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 0.5])
+        c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
         c1.markdown(f"**{ticker}**")
         c2.write(f"{qtd} cotas")
         c3.write(f"R$ {preco_compra:.2f}")
         c4.write(f"R$ {total:,.2f}")
-        c4.caption(f"{lucro:+,.2f} ({variacao:+.1f}%)")
-        if c5.button("X", key=f"remover_{ticker}", width="stretch"):
+        c4.caption(
+            f"{lucro:+,.2f} ({variacao:+.1f}%)"
+            if lucro is not None
+            else "Cotação indisponível — ganho N/D"
+        )
+        if c5.button(
+            "Encerrar ao PM",
+            key=f"remover_{ticker}",
+            help="Registra a venda total pelo preço médio atual; prefira a venda com preço real no formulário.",
+            width="stretch",
+        ):
             st.session_state.db.remover_fii(ticker)
             st.rerun()
+
+    with st.expander("Histórico auditável de movimentações"):
+        movimentos = st.session_state.db.obter_movimentacoes()
+        st.dataframe(movimentos, width="stretch", hide_index=True)
+
+
+def exibir_rebalanceamento():
+    st.header("Plano de Rebalanceamento")
+    st.caption(
+        "Roteiro sugerido pelos critérios do gestor. Execute na corretora e confirme "
+        "aqui para atualizar carteira e histórico."
+    )
+    db = st.session_state.db
+    meta = db.get_config("plano_rebalanceamento_meta") or {}
+    plano = db.obter_plano_rebalanceamento()
+
+    c1, c2 = st.columns(2)
+    if c1.button("Gerar / atualizar plano", type="primary", width="stretch"):
+        with st.spinner("Calculando preços e quantidades..."):
+            resultado = registrar_plano_no_banco(db)
+        st.success(
+            f"Plano registrado com {resultado['inseridos']} movimentações pendentes."
+        )
+        st.rerun()
+    if c2.button("Recarregar tela", width="stretch"):
+        st.rerun()
+
+    if plano.empty:
+        st.info(
+            "Nenhum plano pendente. Clique em **Gerar / atualizar plano** para registrar "
+            "as vendas e compras sugeridas com base na sua carteira atual."
+        )
+        return
+
+    if meta:
+        st.write(f"**{meta.get('titulo', 'Plano')}** · criado em {meta.get('criado_em', 'N/D')}")
+        resumo = meta.get("resumo") or {}
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Vendas planejadas", resumo.get("vendas", 0))
+        m2.metric("Compras planejadas", resumo.get("compras", 0))
+        m3.metric("Fases", resumo.get("fases", 3))
+
+    manter = meta.get("manter") or []
+    if manter:
+        st.subheader("Manter")
+        for item in manter:
+            st.success(f"**{item['ticker']}** — {item['motivo']}")
+
+    decisoes = meta.get("decisoes") or []
+    if decisoes:
+        st.subheader("Decisão separada")
+        for item in decisoes:
+            st.warning(f"**{item['ticker']}** — {item['motivo']}")
+
+    pendentes = plano[plano["status"] == "pendente"] if "status" in plano.columns else plano
+    executados = (
+        plano[plano["status"] == "executado"] if "status" in plano.columns else pd.DataFrame()
+    )
+    st.subheader(f"Pendente ({len(pendentes)})")
+    if pendentes.empty:
+        st.success("Todas as movimentações do plano foram executadas.")
+    else:
+        for fase in sorted(pendentes["fase"].unique()):
+            st.markdown(f"### Fase {int(fase)}")
+            fatia = pendentes[pendentes["fase"] == fase]
+            for _, item in fatia.iterrows():
+                tipo = item["tipo"]
+                ticker = item["ticker"]
+                qtd = int(item["quantidade"])
+                preco_ref = item.get("preco_referencia")
+                valor = item.get("valor_estimado")
+                par = item.get("par_ticker") or ""
+                icone = "VENDA" if tipo == "VENDA" else "COMPRA"
+                st.markdown(
+                    f"**{icone} {ticker}** — {qtd} cotas"
+                    + (f" · ref. R$ {float(preco_ref):.2f}" if pd.notna(preco_ref) else "")
+                    + (f" · ~R$ {float(valor):,.2f}" if pd.notna(valor) else "")
+                    + (f" → par: **{par}**" if par else "")
+                )
+                st.caption(str(item.get("motivo") or ""))
+                with st.expander(f"Confirmar {tipo} de {ticker} na corretora"):
+                    preco_default = float(preco_ref) if pd.notna(preco_ref) else 10.0
+                    with st.form(f"exec_plano_{item['id']}"):
+                        preco_exec = st.number_input(
+                            "Preço executado (R$)",
+                            min_value=0.01,
+                            value=preco_default,
+                            step=0.01,
+                            key=f"preco_{item['id']}",
+                        )
+                        taxas = st.number_input(
+                            "Taxas (R$)",
+                            min_value=0.0,
+                            value=0.0,
+                            step=0.01,
+                            key=f"taxas_{item['id']}",
+                        )
+                        if st.form_submit_button(
+                            f"Registrar {tipo} executada",
+                            type="primary",
+                            width="stretch",
+                        ):
+                            try:
+                                db.executar_item_plano(
+                                    int(item["id"]),
+                                    float(preco_exec),
+                                    float(taxas),
+                                )
+                                st.success(f"{tipo} de {ticker} registrada na carteira.")
+                                st.rerun()
+                            except ValueError as exc:
+                                st.error(str(exc))
+
+    if not executados.empty:
+        st.subheader(f"Executado ({len(executados)})")
+        st.dataframe(
+            executados[
+                [
+                    c
+                    for c in [
+                        "fase",
+                        "tipo",
+                        "ticker",
+                        "quantidade",
+                        "preco_referencia",
+                        "valor_estimado",
+                        "par_ticker",
+                        "executado_em",
+                    ]
+                    if c in executados.columns
+                ]
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+
+    st.subheader("Checklist para a corretora")
+    checklist = []
+    for _, item in pendentes.iterrows():
+        checklist.append(
+            {
+                "Fase": int(item["fase"]),
+                "Ordem": int(item["ordem"]),
+                "Ação": item["tipo"],
+                "Ticker": item["ticker"],
+                "Qtd": int(item["quantidade"]),
+                "Preço ref.": f"R$ {float(item['preco_referencia']):.2f}"
+                if pd.notna(item.get("preco_referencia"))
+                else "N/D",
+                "Par": item.get("par_ticker") or "",
+                "Status": item.get("status"),
+            }
+        )
+    if checklist:
+        st.dataframe(pd.DataFrame(checklist), width="stretch", hide_index=True)
 
 
 def exibir_buscar_fii():
@@ -413,20 +572,49 @@ def exibir_buscar_fii():
         av = None
         resumo = {"status": "nd", "ok": 0, "fail": 0, "nd": 0}
 
-    preco = dados.get("preco_atual") or dados.get("preco", 0)
+    preco = dados.get("preco_atual")
     st.subheader(f"{dados.get('ticker', ticker)} — {dados.get('nome', '')}")
-    st.caption(f"{dados.get('fonte', '')} · {dados.get('horario_dados', '')}")
+    st.caption(
+        f"{dados.get('fonte', '')} · {dados.get('horario_dados', '')} · "
+        f"status {dados.get('status_geral', 'N/D')} · confiança {dados.get('confianca', 'N/D')}"
+    )
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Preço", f"R$ {float(preco):.2f}", f"{dados.get('variacao', 0):+.2f}%")
-    c2.metric("DY Anual", f"{float(dados.get('dy', 0) or 0):.2f}%")
-    c3.metric("P/VP", f"{float(dados.get('p_vp', 0) or 0):.2f}")
+    c1.metric(
+        "Preço",
+        f"R$ {float(preco):.2f}" if preco is not None else "N/D",
+        f"{dados.get('variacao', 0):+.2f}%" if preco is not None else None,
+    )
+    c2.metric(
+        "DY Anual",
+        f"{float(dados['dy']):.2f}%" if dados.get("dy") is not None else "N/D",
+    )
+    c3.metric(
+        "P/VP",
+        f"{float(dados['p_vp']):.2f}" if dados.get("p_vp") is not None else "N/D",
+    )
     c4.metric("Score / Critério", f"{score:.0f}/100 · {status_badge(resumo['status'])}")
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Vacância", f"{float(dados.get('vacancia', 0) or 0):.1f}%")
-    c2.metric("Patrimônio", f"R$ {float(dados.get('patrimonio', 0) or 0):,.0f}")
-    c3.metric("Setor", str(dados.get("setor", "N/A")))
+    c1.metric(
+        "Vacância",
+        f"{float(dados['vacancia']):.1f}%"
+        if dados.get("vacancia") is not None
+        else "N/D",
+    )
+    c2.metric(
+        "Patrimônio",
+        f"R$ {float(dados['patrimonio']):,.0f}"
+        if dados.get("patrimonio") is not None
+        else "N/D",
+    )
+    c3.metric("Setor", str(dados.get("setor") or "N/D"))
+
+    if dados.get("divergencias"):
+        st.warning(" · ".join(dados["divergencias"]))
+    with st.expander("Auditoria das fontes"):
+        qualidade = pd.DataFrame.from_dict(dados.get("qualidade", {}), orient="index")
+        st.dataframe(qualidade, width="stretch")
 
     if av:
         st.subheader("Critérios do gestor")
@@ -441,8 +629,11 @@ def exibir_buscar_fii():
 
     a1, a2 = st.columns(2)
     if a1.button("Adicionar à Carteira", width="stretch"):
-        st.session_state.db.adicionar_fii(ticker, 1, float(preco or 0))
-        st.success("Adicionado.")
+        if preco is None:
+            st.error("Não é possível comprar sem uma cotação válida.")
+        else:
+            st.session_state.db.adicionar_fii(ticker, 1, float(preco))
+            st.success("Compra registrada.")
     if a2.button("Adicionar à Watchlist", width="stretch"):
         st.session_state.db.adicionar_watchlist(ticker)
         st.success("Na watchlist.")
@@ -611,10 +802,7 @@ def exibir_configuracoes():
     )
     db = st.session_state.db
     cfg_email = db.get_config("email", {"ativar": False, "destino": ""})
-    cfg_tg = db.get_config(
-        "telegram",
-        {"ativar": False, "token": "", "chat_id": ""},
-    )
+    cfg_tg = db.get_config("telegram", {"ativar": False}) or {"ativar": False}
     cfg_agenda = db.get_config("agendamento", {"horario": "18:00"})
 
     token_env = bool(os.environ.get("TELEGRAM_TOKEN"))
@@ -632,25 +820,20 @@ def exibir_configuracoes():
             st.success("Email salvo no banco.")
 
     st.subheader("Telegram")
-    if token_env or chat_env:
+    if token_env and chat_env:
         st.success("Credenciais Telegram detectadas nas variáveis de ambiente (recomendado).")
+    else:
+        st.warning(
+            "Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no ambiente para ativar alertas."
+        )
     with st.form("config_telegram"):
         ativar_tg = st.checkbox("Ativar Telegram", value=bool(cfg_tg.get("ativar")))
-        st.caption("Deixe em branco para manter o valor atual. Não exibimos o token salvo.")
-        token = st.text_input("Token do Bot (novo)", value="", type="password")
-        chat_id = st.text_input("Chat ID (novo)", value="")
         if st.form_submit_button("Salvar Telegram"):
-            novo_token = token.strip() or cfg_tg.get("token", "")
-            novo_chat = chat_id.strip() or cfg_tg.get("chat_id", "")
-            db.set_config(
-                "telegram",
-                {
-                    "ativar": ativar_tg,
-                    "token": novo_token,
-                    "chat_id": novo_chat,
-                },
-            )
-            st.success("Preferências Telegram salvas (token não é exibido na tela).")
+            if ativar_tg and not (token_env and chat_env):
+                st.error("Credenciais ausentes no ambiente; Telegram não foi ativado.")
+            else:
+                db.set_config("telegram", {"ativar": ativar_tg})
+                st.success("Preferência Telegram salva; nenhum segredo foi gravado no banco.")
 
     st.subheader("Agendamento (referência)")
     with st.form("config_agendamento"):

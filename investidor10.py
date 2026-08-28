@@ -6,33 +6,30 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
 
 
-def extrair_valor_br(texto: str) -> float:
-    """Converte número BR (1.234,56 ou 5,25) em float."""
+def extrair_valor_br(texto: str) -> Optional[float]:
+    """Converte número BR (1.234,56 ou 5,25); ausente permanece N/D."""
     try:
         texto = str(texto).replace("R$", "").strip()
         texto = "".join(c for c in texto if c.isdigit() or c in ".,-")
         if not texto or texto in {".", ",", "-", ".-"}:
-            return 0.0
+            return None
         if "," in texto and "." in texto:
             texto = texto.replace(".", "").replace(",", ".")
         elif "," in texto:
             texto = texto.replace(",", ".")
         return float(texto)
     except (ValueError, TypeError):
-        return 0.0
+        return None
 
 
-def extrair_percentual(texto: str) -> float:
-    try:
-        return float(str(texto).replace("%", "").replace(",", ".").strip() or 0)
-    except (ValueError, TypeError):
-        return 0.0
+def extrair_percentual(texto: str) -> Optional[float]:
+    return extrair_valor_br(str(texto).replace("%", ""))
 
 
 class Investidor10API:
@@ -59,95 +56,87 @@ class Investidor10API:
         try:
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-            texto = soup.get_text(" ", strip=True)
+            return self.parse_html(ticker, response.text, url)
+        except Exception as e:
+            return {"ticker": ticker, "erro": str(e)}
 
-            dados = {
-                "ticker": ticker,
-                "fonte": "Investidor10",
-                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "url": url,
-            }
+    def parse_html(self, ticker: str, html: str, url: str = "") -> Dict:
+        """Analisa HTML isoladamente para permitir testes sem rede."""
+        ticker = ticker.upper().replace(".SA", "").strip()
+        soup = BeautifulSoup(html, "html.parser")
+        texto = soup.get_text(" ", strip=True)
+        dados = {
+            "ticker": ticker,
+            "fonte": "Investidor10",
+            "coletado_em": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "url": url or f"{self.base_url}{ticker.lower()}/",
+        }
 
-            h1 = soup.find("h1")
-            if h1:
-                dados["nome"] = h1.get_text(strip=True)
+        h1 = soup.find("h1")
+        if h1:
+            dados["nome"] = h1.get_text(strip=True)
 
+        preco_match = re.search(
+            rf"{ticker}\s*Cota..o.*?R\$\s*([\d.,]+)",
+            texto,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not preco_match:
             preco_match = re.search(
-                rf"{ticker}\s*Cota..o.*?R\$\s*([\d.,]+)",
+                r"COTA..O.*?R\$\s*([\d.,]+)",
                 texto,
                 re.IGNORECASE | re.DOTALL,
             )
-            if not preco_match:
-                preco_match = re.search(
-                    r"COTA..O.*?R\$\s*([\d.,]+)",
-                    texto,
-                    re.IGNORECASE | re.DOTALL,
-                )
-            if preco_match:
-                dados["preco"] = extrair_valor_br(preco_match.group(1))
+        if preco_match:
+            dados["preco"] = extrair_valor_br(preco_match.group(1))
 
-            dy_match = re.search(
-                rf"{ticker}\s*DY\s*\(12M\)\s*:\s*([\d.,]+)%",
-                texto,
-                re.IGNORECASE,
-            )
-            if not dy_match:
-                dy_match = re.search(
-                    r"DY\s*\(12M\)\s*:?\s*([\d.,]+)%",
-                    texto,
-                    re.IGNORECASE,
-                )
-            if dy_match:
-                dados["dy"] = extrair_percentual(dy_match.group(1))
+        dy_match = re.search(
+            rf"{ticker}\s*DY\s*\(12M\)\s*:?\s*([\d.,]+)%",
+            texto,
+            re.IGNORECASE,
+        ) or re.search(r"DY\s*\(12M\)\s*:?\s*([\d.,]+)%", texto, re.IGNORECASE)
+        if dy_match:
+            dados["dy"] = extrair_percentual(dy_match.group(1))
 
-            pvp_match = re.search(
-                rf"{ticker}\s*P/VP\s*:\s*([\d.,]+)",
-                texto,
-                re.IGNORECASE,
-            )
-            if not pvp_match:
-                pvp_match = re.search(r"P/VP\s*:?\s*([\d.,]+)", texto, re.IGNORECASE)
-            if pvp_match:
-                dados["p_vp"] = extrair_valor_br(pvp_match.group(1))
+        pvp_match = re.search(
+            rf"{ticker}\s*P/VP\s*:?\s*([\d.,]+)", texto, re.IGNORECASE
+        ) or re.search(r"P/VP\s*:?\s*([\d.,]+)", texto, re.IGNORECASE)
+        if pvp_match:
+            dados["p_vp"] = extrair_valor_br(pvp_match.group(1))
 
-            pl_match = re.search(
-                r"patrim.nio\s+de\s+R\$\s*([\d.,]+)\s*(Bilh|Milh)",
-                texto,
-                re.IGNORECASE,
-            )
-            if pl_match:
-                valor = extrair_valor_br(pl_match.group(1))
+        pl_match = re.search(
+            r"patrim.nio\s+de\s+R\$\s*([\d.,]+)\s*(Bilh|Milh)",
+            texto,
+            re.IGNORECASE,
+        )
+        if pl_match:
+            valor = extrair_valor_br(pl_match.group(1))
+            if valor is not None:
                 unidade = pl_match.group(2).lower()
-                if "bilh" in unidade:
-                    valor *= 1_000_000_000
-                elif "milh" in unidade:
-                    valor *= 1_000_000
-                dados["patrimonio"] = valor
+                dados["patrimonio"] = valor * (
+                    1_000_000_000 if "bilh" in unidade else 1_000_000
+                )
 
-            vac_match = re.search(r"vac.ncia.*?([\d.,]+)%", texto, re.IGNORECASE)
-            if vac_match:
-                dados["vacancia"] = extrair_percentual(vac_match.group(1))
+        vac_match = re.search(r"vac.ncia.*?([\d.,]+)%", texto, re.IGNORECASE)
+        if vac_match:
+            dados["vacancia"] = extrair_percentual(vac_match.group(1))
 
-            setor_match = re.search(
-                r"do segmento\s+(Híbrido|Papel|Tijolo|Logístico|FOF|Shopping|Lajes)",
-                texto,
-                re.IGNORECASE,
-            )
-            if setor_match:
-                dados["setor"] = setor_match.group(1)
+        setor_match = re.search(
+            r"do segmento\s+(Híbrido|Papel|Tijolo|Logístico|FOF|Shopping|Lajes)",
+            texto,
+            re.IGNORECASE,
+        )
+        if setor_match:
+            dados["setor"] = setor_match.group(1)
 
-            tipo_match = re.search(
-                r"(Fundo de\s+(Papel|Tijolo|Logístico|Híbrido))",
-                texto,
-                re.IGNORECASE,
-            )
-            if tipo_match:
-                dados["tipo"] = tipo_match.group(1)
-
-            return dados
-        except Exception as e:
-            return {"ticker": ticker, "erro": str(e)}
+        tipo_match = re.search(
+            r"(Fundo de\s+(Papel|Tijolo|Logístico|Híbrido))",
+            texto,
+            re.IGNORECASE,
+        )
+        if tipo_match:
+            dados["tipo"] = tipo_match.group(1)
+        return dados
 
     def buscar_lista(self, tickers: List[str]) -> List[Dict]:
         return [self.buscar_fii(t) for t in tickers]

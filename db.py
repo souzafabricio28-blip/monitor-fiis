@@ -7,13 +7,16 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import pandas as pd
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith("postgresql"))
+USE_POSTGRES = bool(
+    DATABASE_URL and DATABASE_URL.startswith(("postgresql://", "postgres://"))
+)
 
 
 def _ph() -> str:
@@ -110,6 +113,60 @@ class DatabaseManager:
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS movimentacoes (
+                    id BIGSERIAL PRIMARY KEY,
+                    ticker TEXT NOT NULL,
+                    tipo TEXT NOT NULL,
+                    quantidade INTEGER NOT NULL,
+                    preco_unitario REAL NOT NULL,
+                    taxas REAL NOT NULL DEFAULT 0,
+                    data_movimentacao TEXT NOT NULL,
+                    observacoes TEXT,
+                    idempotency_key TEXT UNIQUE
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    versao INTEGER PRIMARY KEY,
+                    aplicado_em TEXT NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sync_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    iniciado_em TEXT NOT NULL,
+                    concluido_em TEXT,
+                    status TEXT NOT NULL,
+                    contagens TEXT NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS plano_movimentacoes (
+                    id BIGSERIAL PRIMARY KEY,
+                    fase INTEGER NOT NULL,
+                    ordem INTEGER NOT NULL,
+                    tipo TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    quantidade INTEGER NOT NULL,
+                    preco_referencia REAL,
+                    valor_estimado REAL,
+                    par_ticker TEXT,
+                    motivo TEXT,
+                    status TEXT NOT NULL DEFAULT 'pendente',
+                    criado_em TEXT NOT NULL,
+                    executado_em TEXT,
+                    idempotency_key TEXT UNIQUE
+                )
+                """
+            )
         else:
             cur.execute(
                 """
@@ -181,64 +238,166 @@ class DatabaseManager:
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS movimentacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    tipo TEXT NOT NULL,
+                    quantidade INTEGER NOT NULL,
+                    preco_unitario REAL NOT NULL,
+                    taxas REAL NOT NULL DEFAULT 0,
+                    data_movimentacao TEXT NOT NULL,
+                    observacoes TEXT,
+                    idempotency_key TEXT UNIQUE
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    versao INTEGER PRIMARY KEY,
+                    aplicado_em TEXT NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sync_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    iniciado_em TEXT NOT NULL,
+                    concluido_em TEXT,
+                    status TEXT NOT NULL,
+                    contagens TEXT NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS plano_movimentacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fase INTEGER NOT NULL,
+                    ordem INTEGER NOT NULL,
+                    tipo TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    quantidade INTEGER NOT NULL,
+                    preco_referencia REAL,
+                    valor_estimado REAL,
+                    par_ticker TEXT,
+                    motivo TEXT,
+                    status TEXT NOT NULL DEFAULT 'pendente',
+                    criado_em TEXT NOT NULL,
+                    executado_em TEXT,
+                    idempotency_key TEXT UNIQUE
+                )
+                """
+            )
 
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cotacoes_ticker_data "
+            "ON cotacoes(ticker, data)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dividendos_ticker_data "
+            "ON dividendos(ticker, data_pagamento)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_movimentacoes_ticker_data "
+            "ON movimentacoes(ticker, data_movimentacao)"
+        )
+        agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if self.use_pg:
+            cur.execute(
+                "INSERT INTO schema_version (versao, aplicado_em) VALUES (%s, %s) "
+                "ON CONFLICT (versao) DO NOTHING",
+                (2, agora),
+            )
+        else:
+            cur.execute(
+                "INSERT OR IGNORE INTO schema_version (versao, aplicado_em) VALUES (?, ?)",
+                (2, agora),
+            )
+        conn.commit()
+        conn.close()
+        self._sanitizar_configuracoes()
+        self._importar_saldos_iniciais()
+
+        if self.use_pg and os.environ.get("AUTO_MIGRATE_SQLITE") == "1":
+            self._migrate_sqlite_if_needed()
+
+    def _sanitizar_configuracoes(self):
+        """Remove segredos legados que possam ter sido gravados no banco."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT valor FROM configuracoes WHERE chave = {_ph()}",
+            ("telegram",),
+        )
+        row = cur.fetchone()
+        if row:
+            try:
+                atual = json.loads(row[0])
+            except (TypeError, json.JSONDecodeError):
+                atual = {}
+            seguro = json.dumps(
+                {"ativar": bool(atual.get("ativar", False))},
+                ensure_ascii=False,
+            )
+            if self.use_pg:
+                cur.execute(
+                    "UPDATE configuracoes SET valor = %s WHERE chave = %s",
+                    (seguro, "telegram"),
+                )
+            else:
+                cur.execute(
+                    "UPDATE configuracoes SET valor = ? WHERE chave = ?",
+                    (seguro, "telegram"),
+                )
+            conn.commit()
+        conn.close()
+
+    def _importar_saldos_iniciais(self):
+        """Registra cada posição legada uma vez, sem alterar seu resumo."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT ticker, quantidade, preco_compra, data_compra FROM carteira")
+        for ticker, quantidade, preco, data_compra in cur.fetchall():
+            chave = f"saldo-inicial:{ticker}"
+            params = (
+                ticker,
+                "SALDO_INICIAL",
+                int(quantidade),
+                float(preco),
+                0.0,
+                data_compra,
+                "Importado automaticamente da posição existente",
+                chave,
+            )
+            if self.use_pg:
+                cur.execute(
+                    "INSERT INTO movimentacoes "
+                    "(ticker, tipo, quantidade, preco_unitario, taxas, data_movimentacao, "
+                    "observacoes, idempotency_key) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (idempotency_key) DO NOTHING",
+                    params,
+                )
+            else:
+                cur.execute(
+                    "INSERT OR IGNORE INTO movimentacoes "
+                    "(ticker, tipo, quantidade, preco_unitario, taxas, data_movimentacao, "
+                    "observacoes, idempotency_key) VALUES (?,?,?,?,?,?,?,?)",
+                    params,
+                )
         conn.commit()
         conn.close()
 
-        if self.use_pg:
-            self._migrate_sqlite_if_needed()
-
     def _migrate_sqlite_if_needed(self):
-        pg_conn = self._get_conn()
-        pg_cur = pg_conn.cursor()
-        pg_cur.execute("SELECT COUNT(*) FROM carteira")
-        if pg_cur.fetchone()[0] > 0:
-            pg_conn.close()
-            return
-
+        """Migração explícita e idempotente; habilitada por AUTO_MIGRATE_SQLITE=1."""
         if not os.path.exists(self.db_path):
-            pg_conn.close()
-            return
+            return {}
+        from migrate_db import migrar_sqlite_para_postgres
 
-        try:
-            sl_conn = sqlite3.connect(self.db_path)
-            sl_cur = sl_conn.cursor()
-
-            sl_cur.execute(
-                "SELECT ticker, quantidade, preco_compra, data_compra FROM carteira"
-            )
-            for row in sl_cur.fetchall():
-                pg_cur.execute(
-                    "INSERT INTO carteira (ticker, quantidade, preco_compra, data_compra) "
-                    "VALUES (%s, %s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
-                    row,
-                )
-
-            sl_cur.execute("SELECT ticker, data, preco FROM cotacoes")
-            for row in sl_cur.fetchall():
-                pg_cur.execute(
-                    "INSERT INTO cotacoes (ticker, data, preco) VALUES (%s, %s, %s) "
-                    "ON CONFLICT (ticker, data) DO NOTHING",
-                    row,
-                )
-
-            try:
-                sl_cur.execute(
-                    "SELECT ticker, preco_alvo, data_adicionado, notas FROM watchlist"
-                )
-                for row in sl_cur.fetchall():
-                    pg_cur.execute(
-                        "INSERT INTO watchlist (ticker, preco_alvo, data_adicionado, notas) "
-                        "VALUES (%s, %s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
-                        row,
-                    )
-            except sqlite3.OperationalError:
-                pass
-
-            pg_conn.commit()
-            sl_conn.close()
-        finally:
-            pg_conn.close()
+        return migrar_sqlite_para_postgres(self.db_path, DATABASE_URL)
 
     def obter_carteira(self) -> pd.DataFrame:
         conn = self._get_conn()
@@ -248,38 +407,129 @@ class DatabaseManager:
             conn.close()
 
     def adicionar_fii(self, ticker: str, quantidade: int, preco: float):
-        """Soma cotas e recalcula preço médio (não apaga a posição)."""
+        """Registra compra e atualiza o resumo compatível da carteira."""
+        return self.registrar_movimentacao(ticker, "COMPRA", quantidade, preco)
+
+    def registrar_movimentacao(
+        self,
+        ticker: str,
+        tipo: str,
+        quantidade: int,
+        preco_unitario: float,
+        taxas: float = 0.0,
+        data_movimentacao: Optional[str] = None,
+        observacoes: str = "",
+        idempotency_key: Optional[str] = None,
+    ) -> str:
         ticker = ticker.upper().replace(".SA", "").strip()
+        tipo = tipo.upper().strip()
+        quantidade = int(quantidade)
+        preco_unitario = float(preco_unitario)
+        taxas = float(taxas)
+        if tipo not in {"COMPRA", "VENDA", "SALDO_INICIAL"}:
+            raise ValueError("Tipo deve ser COMPRA, VENDA ou SALDO_INICIAL")
+        if quantidade <= 0 or preco_unitario < 0 or taxas < 0:
+            raise ValueError("Quantidade deve ser positiva; preço e taxas não podem ser negativos")
+
         conn = self._get_conn()
         cur = conn.cursor()
-        data = datetime.now().strftime("%Y-%m-%d")
-        ph = _ph()
-
-        cur.execute(
-            f"SELECT quantidade, preco_compra FROM carteira WHERE ticker = {ph}",
-            (ticker,),
-        )
-        existente = cur.fetchone()
-
-        if existente:
-            qtd_antiga = int(existente[0])
-            preco_antigo = float(existente[1])
-            nova_qtd = qtd_antiga + quantidade
-            preco_medio = ((qtd_antiga * preco_antigo) + (quantidade * preco)) / nova_qtd
+        if tipo == "VENDA":
             cur.execute(
-                f"UPDATE carteira SET quantidade = {ph}, preco_compra = {ph}, "
-                f"data_compra = {ph} WHERE ticker = {ph}",
-                (nova_qtd, round(preco_medio, 4), data, ticker),
+                f"SELECT quantidade FROM carteira WHERE ticker = {_ph()}",
+                (ticker,),
+            )
+            atual = cur.fetchone()
+            if not atual or quantidade > int(atual[0]):
+                conn.close()
+                raise ValueError("Venda maior que a posição disponível")
+
+        chave = idempotency_key or str(uuid.uuid4())
+        data = data_movimentacao or datetime.now().strftime("%Y-%m-%d")
+        params = (
+            ticker,
+            tipo,
+            quantidade,
+            preco_unitario,
+            taxas,
+            data,
+            observacoes,
+            chave,
+        )
+        if self.use_pg:
+            cur.execute(
+                "INSERT INTO movimentacoes "
+                "(ticker,tipo,quantidade,preco_unitario,taxas,data_movimentacao,"
+                "observacoes,idempotency_key) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (idempotency_key) DO NOTHING",
+                params,
             )
         else:
             cur.execute(
-                f"INSERT INTO carteira (ticker, quantidade, preco_compra, data_compra) "
-                f"VALUES ({ph}, {ph}, {ph}, {ph})",
-                (ticker, quantidade, preco, data),
+                "INSERT OR IGNORE INTO movimentacoes "
+                "(ticker,tipo,quantidade,preco_unitario,taxas,data_movimentacao,"
+                "observacoes,idempotency_key) VALUES (?,?,?,?,?,?,?,?)",
+                params,
             )
-
         conn.commit()
         conn.close()
+        self._recalcular_posicao(ticker)
+        return chave
+
+    def _recalcular_posicao(self, ticker: str):
+        movimentos = self.obter_movimentacoes(ticker)
+        quantidade = 0
+        custo = 0.0
+        ultima_data = datetime.now().strftime("%Y-%m-%d")
+        for _, mov in movimentos.iterrows():
+            qtd = int(mov["quantidade"])
+            tipo = mov["tipo"]
+            ultima_data = str(mov["data_movimentacao"])[:10]
+            if tipo in {"COMPRA", "SALDO_INICIAL"}:
+                quantidade += qtd
+                custo += qtd * float(mov["preco_unitario"]) + float(mov["taxas"])
+            elif tipo == "VENDA" and quantidade:
+                custo -= min(qtd, quantidade) * (custo / quantidade)
+                quantidade -= qtd
+
+        conn = self._get_conn()
+        cur = conn.cursor()
+        if quantidade <= 0:
+            cur.execute(f"DELETE FROM carteira WHERE ticker = {_ph()}", (ticker,))
+        else:
+            preco_medio = custo / quantidade
+            if self.use_pg:
+                cur.execute(
+                    "INSERT INTO carteira (ticker,quantidade,preco_compra,data_compra) "
+                    "VALUES (%s,%s,%s,%s) ON CONFLICT (ticker) DO UPDATE SET "
+                    "quantidade=EXCLUDED.quantidade, preco_compra=EXCLUDED.preco_compra, "
+                    "data_compra=EXCLUDED.data_compra",
+                    (ticker, quantidade, round(preco_medio, 4), ultima_data),
+                )
+            else:
+                cur.execute(
+                    "INSERT OR REPLACE INTO carteira "
+                    "(ticker,quantidade,preco_compra,data_compra) VALUES (?,?,?,?)",
+                    (ticker, quantidade, round(preco_medio, 4), ultima_data),
+                )
+        conn.commit()
+        conn.close()
+
+    def obter_movimentacoes(self, ticker: Optional[str] = None) -> pd.DataFrame:
+        conn = self._get_conn()
+        try:
+            if ticker:
+                return pd.read_sql_query(
+                    f"SELECT * FROM movimentacoes WHERE ticker = {_ph()} "
+                    "ORDER BY data_movimentacao, id",
+                    conn,
+                    params=(ticker.upper(),),
+                )
+            return pd.read_sql_query(
+                "SELECT * FROM movimentacoes ORDER BY data_movimentacao DESC, id DESC",
+                conn,
+            )
+        finally:
+            conn.close()
 
     def atualizar_carteira(self, ticker: str, quantidade: int, preco_compra: float):
         """Substitui a posição (usado pelo CLI)."""
@@ -307,12 +557,24 @@ class DatabaseManager:
         conn.close()
 
     def remover_fii(self, ticker: str):
+        """Encerra a posição ao preço médio, preservando o histórico."""
         ticker = ticker.upper().replace(".SA", "").strip()
         conn = self._get_conn()
         cur = conn.cursor()
-        cur.execute(f"DELETE FROM carteira WHERE ticker = {_ph()}", (ticker,))
-        conn.commit()
+        cur.execute(
+            f"SELECT quantidade, preco_compra FROM carteira WHERE ticker = {_ph()}",
+            (ticker,),
+        )
+        row = cur.fetchone()
         conn.close()
+        if row:
+            self.registrar_movimentacao(
+                ticker,
+                "VENDA",
+                int(row[0]),
+                float(row[1]),
+                observacoes="Encerramento de posição pelo comando remover",
+            )
 
     def salvar_cotacao(self, ticker: str, preco: float, data: Optional[str] = None):
         ticker = ticker.upper().replace(".SA", "").strip()
@@ -336,12 +598,13 @@ class DatabaseManager:
     def obter_cotacoes(self, ticker: str, dias: int = 30) -> pd.DataFrame:
         conn = self._get_conn()
         ph = _ph()
+        limite = (datetime.now() - timedelta(days=max(int(dias), 0))).strftime("%Y-%m-%d")
         try:
             return pd.read_sql_query(
                 f"SELECT data, preco FROM cotacoes WHERE ticker = {ph} "
-                f"AND data >= date('now', '-{int(dias)} days') ORDER BY data",
+                f"AND data >= {ph} ORDER BY data",
                 conn,
-                params=(ticker.upper(),),
+                params=(ticker.upper(), limite),
             )
         finally:
             conn.close()
@@ -367,17 +630,22 @@ class DatabaseManager:
 
     def obter_dividendos(self, ticker: Optional[str] = None, meses: int = 12) -> pd.DataFrame:
         conn = self._get_conn()
+        limite = (datetime.now() - timedelta(days=max(int(meses), 0) * 31)).strftime(
+            "%Y-%m-%d"
+        )
         try:
             if ticker:
                 return pd.read_sql_query(
                     f"SELECT * FROM dividendos WHERE ticker = {_ph()} "
-                    f"ORDER BY data_pagamento DESC",
+                    f"AND data_pagamento >= {_ph()} ORDER BY data_pagamento DESC",
                     conn,
-                    params=(ticker.upper(),),
+                    params=(ticker.upper(), limite),
                 )
             return pd.read_sql_query(
-                "SELECT * FROM dividendos ORDER BY data_pagamento DESC",
+                f"SELECT * FROM dividendos WHERE data_pagamento >= {_ph()} "
+                "ORDER BY data_pagamento DESC",
                 conn,
+                params=(limite,),
             )
         finally:
             conn.close()
@@ -537,3 +805,115 @@ class DatabaseManager:
             return json.loads(row[0])
         except Exception:
             return None
+
+    def salvar_plano_rebalanceamento(self, itens: list) -> int:
+        """Substitui o plano pendente por um novo roteiro de rebalanceamento."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM plano_movimentacoes WHERE status = 'pendente'")
+        inseridos = 0
+        for item in itens:
+            params = (
+                int(item["fase"]),
+                int(item["ordem"]),
+                item["tipo"],
+                item["ticker"].upper(),
+                int(item["quantidade"]),
+                item.get("preco_referencia"),
+                item.get("valor_estimado"),
+                (item.get("par_ticker") or "").upper() or None,
+                item.get("motivo", ""),
+                item.get("status", "pendente"),
+                item.get("criado_em") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                item["idempotency_key"],
+            )
+            if self.use_pg:
+                cur.execute(
+                    "INSERT INTO plano_movimentacoes "
+                    "(fase, ordem, tipo, ticker, quantidade, preco_referencia, "
+                    "valor_estimado, par_ticker, motivo, status, criado_em, idempotency_key) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (idempotency_key) DO UPDATE SET "
+                    "quantidade=EXCLUDED.quantidade, preco_referencia=EXCLUDED.preco_referencia, "
+                    "valor_estimado=EXCLUDED.valor_estimado, motivo=EXCLUDED.motivo, "
+                    "status='pendente', executado_em=NULL",
+                    params,
+                )
+            else:
+                cur.execute(
+                    "INSERT OR REPLACE INTO plano_movimentacoes "
+                    "(fase, ordem, tipo, ticker, quantidade, preco_referencia, "
+                    "valor_estimado, par_ticker, motivo, status, criado_em, idempotency_key) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    params,
+                )
+            inseridos += 1
+        conn.commit()
+        conn.close()
+        return inseridos
+
+    def obter_plano_rebalanceamento(
+        self, status: Optional[str] = None
+    ) -> pd.DataFrame:
+        conn = self._get_conn()
+        try:
+            if status:
+                return pd.read_sql_query(
+                    f"SELECT * FROM plano_movimentacoes WHERE status = {_ph()} "
+                    "ORDER BY fase, ordem, CASE tipo WHEN 'VENDA' THEN 0 ELSE 1 END, id",
+                    conn,
+                    params=(status,),
+                )
+            return pd.read_sql_query(
+                "SELECT * FROM plano_movimentacoes "
+                "ORDER BY fase, ordem, CASE tipo WHEN 'VENDA' THEN 0 ELSE 1 END, id",
+                conn,
+            )
+        finally:
+            conn.close()
+
+    def executar_item_plano(
+        self,
+        item_id: int,
+        preco_real: float,
+        taxas: float = 0.0,
+        data_movimentacao: Optional[str] = None,
+    ):
+        """Registra a movimentação real na carteira e marca o item do plano como executado."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(f"SELECT * FROM plano_movimentacoes WHERE id = {_ph()}", (item_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            raise ValueError("Item do plano não encontrado")
+        cols = [d[0] for d in cur.description]
+        item = dict(zip(cols, row))
+        if item.get("status") == "executado":
+            conn.close()
+            raise ValueError("Este item já foi executado")
+        conn.close()
+
+        obs = f"Plano rebalanceamento f{item['fase']} — {item.get('motivo', '')}"
+        chave = f"exec-plano-{item_id}-{item['idempotency_key']}"
+        self.registrar_movimentacao(
+            item["ticker"],
+            item["tipo"],
+            int(item["quantidade"]),
+            float(preco_real),
+            float(taxas),
+            data_movimentacao,
+            observacoes=obs,
+            idempotency_key=chave,
+        )
+
+        conn = self._get_conn()
+        cur = conn.cursor()
+        agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute(
+            f"UPDATE plano_movimentacoes SET status = 'executado', executado_em = {_ph()} "
+            f"WHERE id = {_ph()}",
+            (agora, item_id),
+        )
+        conn.commit()
+        conn.close()

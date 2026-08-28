@@ -5,6 +5,7 @@ Envia alertas e relatórios via Telegram
 
 import requests
 import json
+import os
 from datetime import datetime
 
 
@@ -139,12 +140,9 @@ class TelegramNotifier:
 
 # Função para usar no fii_monitor.py
 def enviar_alerta_telegram(mensagem: str, config: dict = None):
-    """Função auxiliar para enviar alertas"""
-    if config is None:
-        config = {}
-    
-    token = config.get("telegram_token", "")
-    chat_id = config.get("telegram_chat_id", "")
+    """Envia usando somente segredos do ambiente; config legado é ignorado."""
+    token = os.environ.get("TELEGRAM_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
     
     if token and chat_id:
         notifier = TelegramNotifier(token, chat_id)

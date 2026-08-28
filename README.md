@@ -9,8 +9,8 @@ persistência em SQLite (local) ou PostgreSQL/Neon (produção).
 - `app.py` — dashboard web (Streamlit)
 - `main.py` — menu completo (dashboard, CLI, PDF, Excel, Telegram, agendador)
 - `fii_monitor.py` — monitor em terminal
-- `db.py` — banco unificado (SQLite / Neon)
-- `market_data.py` — cotações + DY timezone-safe + cache
+- `db.py` — banco unificado, movimentações e schema versionado (SQLite / Neon)
+- `market_data.py` — fonte única, DY timezone-safe, cache, confiança e divergências
 - `investidor10.py` — scraper único
 - `criterios.py` — regras de avaliação (Ricardo / RT Tintas)
 - `portfolio.py` — análise da carteira para PDF/Excel/HTML
@@ -55,7 +55,7 @@ python migrate_db.py
 - Configure no painel do Render (nunca no Git):
   - `DATABASE_URL` — Neon
   - `AUTH_USER` / `AUTH_PASSWORD` — login do painel (obrigatório com Neon)
-- Troque a senha do Neon se ela já apareceu em commits antigos
+- Antes do próximo deploy, rotacione manualmente a senha Neon e o token Render
 
 ## Segurança (dados de negócio)
 
@@ -64,7 +64,8 @@ python migrate_db.py
 - Em produção (Postgres/Neon), sem `AUTH_PASSWORD` o app **não abre**
 - Bloqueio temporário após 5 tentativas erradas
 - Segredos só em variáveis de ambiente do Render / `.env` local
-- Tokens do Telegram não são reexibidos na tela de configurações
+- Tokens do Telegram nunca são armazenados no banco; somente variáveis de ambiente
+- Sessões expiram em 8 horas; XSRF e CORS ficam ativos
 - HTTPS pelo Render; Neon com `sslmode=require`
 
 Checklist rápido no Render → Environment:

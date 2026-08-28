@@ -113,10 +113,9 @@ def opcao_buscar_fii():
         print("Ticker inválido!")
         return
     
-    from investidor10_scraper import Investidor10Scraper
-    
-    scraper = Investidor10Scraper()
-    dados = scraper.buscar_dados_fii(ticker)
+    from market_data import buscar_dados_completos
+
+    dados = buscar_dados_completos(ticker)
     
     if "erro" in dados:
         print(f"❌ Erro: {dados['erro']}")
@@ -126,11 +125,12 @@ def opcao_buscar_fii():
     print(f"📊 DADOS - {ticker}")
     print(f"{'='*50}")
     print(f"Nome: {dados.get('nome', 'N/A')}")
-    print(f"Preço: R$ {dados.get('preco', 0):.2f}")
-    print(f"Dividend Yield: {dados.get('dy', 0):.2f}%")
-    print(f"P/VP: {dados.get('p_vp', 0):.2f}")
-    print(f"Patrimônio: R$ {dados.get('patrimonio', 0):,.2f}")
+    print(f"Preço: {dados.get('preco_atual') if dados.get('preco_atual') is not None else 'N/D'}")
+    print(f"Dividend Yield: {dados.get('dy') if dados.get('dy') is not None else 'N/D'}")
+    print(f"P/VP: {dados.get('p_vp') if dados.get('p_vp') is not None else 'N/D'}")
+    print(f"Patrimônio: {dados.get('patrimonio') if dados.get('patrimonio') is not None else 'N/D'}")
     print(f"Setor: {dados.get('setor', 'N/A')}")
+    print(f"Fonte: {dados.get('fonte', 'N/D')} | Confiança: {dados.get('confianca', 'N/D')}")
     print(f"{'='*50}")
 
 
@@ -146,12 +146,15 @@ def opcao_comparar():
     
     lista_tickers = [t.strip() for t in tickers.split(",")]
     
-    from investidor10_scraper import Investidor10Scraper
-    
-    scraper = Investidor10Scraper()
-    dados = scraper.buscar_lista_fiis(lista_tickers)
-    
-    scraper.imprimir_tabela(dados)
+    from market_data import buscar_dados_completos
+
+    dados = [buscar_dados_completos(t) for t in lista_tickers]
+    for fii in dados:
+        print(
+            f"{fii['ticker']}: preço={fii.get('preco_atual', 'N/D')} "
+            f"DY={fii.get('dy', 'N/D')} P/VP={fii.get('p_vp', 'N/D')} "
+            f"confiança={fii.get('confianca', 'N/D')}"
+        )
 
 
 def opcao_pdf():
@@ -189,14 +192,15 @@ def opcao_excel():
 
 
 def opcao_telegram():
-    """Configura notificações Telegram"""
-    print("\n🔔 Configurar Telegram")
-    
+    """Testa notificações Telegram usando somente o ambiente."""
+    print("\n🔔 Testar Telegram")
+
+    import os
     from telegram_notifier import TelegramNotifier
-    
-    token = input("Token do Bot: ").strip()
-    chat_id = input("Chat ID: ").strip()
-    
+
+    token = os.environ.get("TELEGRAM_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+
     if token and chat_id:
         notifier = TelegramNotifier(token, chat_id)
         
@@ -211,7 +215,7 @@ def opcao_telegram():
         else:
             print("❌ Erro ao conectar com Telegram")
     else:
-        print("❌ Token e Chat ID são obrigatórios!")
+        print("❌ Defina TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no ambiente.")
 
 
 def opcao_agendador():

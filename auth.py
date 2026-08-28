@@ -8,7 +8,6 @@ Credenciais somente por variáveis de ambiente / Streamlit secrets:
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
 import time
@@ -18,6 +17,8 @@ import streamlit as st
 
 MAX_TENTATIVAS = 5
 BLOQUEIO_SEGUNDOS = 120
+SESSAO_SEGUNDOS = 8 * 60 * 60
+SENHA_MINIMA = 12
 
 
 def _credenciais() -> tuple[str, Optional[str]]:
@@ -40,29 +41,50 @@ def _secret(chave: str) -> Optional[str]:
 
 
 def auth_obrigatorio() -> bool:
-    """Em produção (Postgres/Neon) a senha é obrigatória."""
+    """Em produção ou com Postgres/Neon, autenticação é obrigatória."""
     db_url = os.environ.get("DATABASE_URL") or ""
-    return db_url.startswith("postgresql")
-
-
-def _hash(texto: str) -> str:
-    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+    ambiente = (os.environ.get("APP_ENV") or "").lower()
+    return bool(
+        db_url.startswith(("postgresql://", "postgres://"))
+        or ambiente == "production"
+        or os.environ.get("RENDER")
+        or os.environ.get("RENDER_SERVICE_ID")
+    )
 
 
 def _senha_ok(informada: str, esperada: str) -> bool:
-    return hmac.compare_digest(_hash(informada), _hash(esperada))
+    return hmac.compare_digest(
+        informada.encode("utf-8"),
+        esperada.encode("utf-8"),
+    )
 
 
 def _usuario_ok(informado: str, esperado: str) -> bool:
     return hmac.compare_digest(informado.strip(), esperado.strip())
 
 
+def _credenciais_producao_validas(usuario: str, senha: str) -> bool:
+    return usuario.lower() != "admin" and len(senha) >= SENHA_MINIMA
+
+
 def esta_autenticado() -> bool:
-    return bool(st.session_state.get("autenticado"))
+    if not st.session_state.get("autenticado"):
+        return False
+    expira_em = float(st.session_state.get("auth_expira_em") or 0)
+    if expira_em <= time.time():
+        logout()
+        return False
+    return True
 
 
 def logout():
-    for chave in ("autenticado", "auth_user", "auth_falhas", "auth_bloqueio_ate"):
+    for chave in (
+        "autenticado",
+        "auth_user",
+        "auth_expira_em",
+        "auth_falhas",
+        "auth_bloqueio_ate",
+    ):
         st.session_state.pop(chave, None)
 
 
@@ -90,6 +112,16 @@ def exigir_login() -> bool:
         st.sidebar.warning("Dev local sem AUTH_PASSWORD — não use assim em produção.")
         return True
 
+    if auth_obrigatorio() and not _credenciais_producao_validas(
+        user_esperado, senha_esperada
+    ):
+        st.error(
+            "Acesso bloqueado: em produção, defina AUTH_USER personalizado e "
+            f"AUTH_PASSWORD com pelo menos {SENHA_MINIMA} caracteres."
+        )
+        st.stop()
+        return False
+
     if esta_autenticado():
         return True
 
@@ -114,6 +146,7 @@ def exigir_login() -> bool:
         if _usuario_ok(usuario, user_esperado) and _senha_ok(senha, senha_esperada):
             st.session_state["autenticado"] = True
             st.session_state["auth_user"] = user_esperado
+            st.session_state["auth_expira_em"] = agora + SESSAO_SEGUNDOS
             st.session_state["auth_falhas"] = 0
             st.session_state.pop("auth_bloqueio_ate", None)
             st.rerun()

@@ -13,3 +13,9 @@ relatorios/
 *.pdf
 .DS_Store
 .streamlit/secrets.toml
+.backups/
+check_*.py
+fix_render.py
+trigger_deploy.py
+wait_deploy.py
+debug*.py

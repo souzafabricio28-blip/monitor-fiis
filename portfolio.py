@@ -8,7 +8,30 @@ from datetime import datetime
 from typing import Dict, List
 
 from db import DatabaseManager
-from market_data import buscar_cotacao, calcular_dy
+from market_data import buscar_dados_completos
+
+
+def _quantidade_na_data(movimentos, data_pagamento: str) -> int:
+    quantidade = 0
+    limite = str(data_pagamento)[:10]
+    for _, mov in movimentos.iterrows():
+        if str(mov["data_movimentacao"])[:10] > limite:
+            continue
+        sinal = -1 if mov["tipo"] == "VENDA" else 1
+        quantidade += sinal * int(mov["quantidade"])
+    return max(quantidade, 0)
+
+
+def _proventos_registrados(db: DatabaseManager, ticker: str) -> float:
+    dividendos = db.obter_dividendos(ticker)
+    movimentos = db.obter_movimentacoes(ticker)
+    if dividendos.empty or movimentos.empty:
+        return 0.0
+    return sum(
+        _quantidade_na_data(movimentos, row["data_pagamento"])
+        * float(row["valor_por_cota"])
+        for _, row in dividendos.iterrows()
+    )
 
 
 def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
@@ -23,6 +46,9 @@ def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
         "total_atual": 0.0,
         "valor_atual": 0.0,
         "total_recebido": 0.0,
+        "proventos_registrados": 0.0,
+        "projecao_renda_mensal": 0.0,
+        "posicoes_sem_cotacao": [],
         "lucro": 0.0,
         "rendimento_mensal": 0.0,
         "rendimento_anual": 0.0,
@@ -37,27 +63,37 @@ def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
         ticker = row["ticker"]
         quantidade = int(row["quantidade"])
         preco_compra = float(row["preco_compra"])
-        cotacao = buscar_cotacao(ticker)
-        if not cotacao:
-            continue
-
-        preco_atual = float(cotacao["preco_atual"])
         valor_investido = quantidade * preco_compra
-        valor_atual = quantidade * preco_atual
-        lucro = valor_atual - valor_investido
-        lucro_pct = (lucro / valor_investido * 100) if valor_investido else 0
-
-        dy_info = calcular_dy(ticker, preco_atual)
-        dy_anual = dy_info["dy_anual"] if dy_info else 0.0
-        dy_mensal = dy_info["dy_mensal"] if dy_info else 0.0
-        div_12m = dy_info["total_dividendos_12m"] if dy_info else 0.0
-        dividendos_recebidos = quantidade * div_12m
-        rendimento_mensal = valor_atual * (dy_anual / 100) / 12 if dy_anual else 0
-
         analise["total_investido"] += valor_investido
-        analise["total_atual"] += valor_atual
-        analise["total_recebido"] += dividendos_recebidos
-        analise["rendimento_mensal"] += rendimento_mensal
+
+        dados = buscar_dados_completos(ticker, db=db)
+        preco_valor = dados.get("preco_atual")
+        preco_atual = float(preco_valor) if preco_valor is not None else None
+        valor_atual = quantidade * preco_atual if preco_atual is not None else None
+        lucro = valor_atual - valor_investido if valor_atual is not None else None
+        lucro_pct = (
+            lucro / valor_investido * 100
+            if lucro is not None and valor_investido
+            else None
+        )
+
+        dy_anual = dados.get("dy")
+        dy_mensal = dados.get("dy_mensal")
+        div_12m = dados.get("total_dividendos_12m")
+        proventos = _proventos_registrados(db, ticker)
+        projecao_mensal = (
+            quantidade * float(div_12m) / 12 if div_12m is not None else None
+        )
+
+        if valor_atual is not None:
+            analise["total_atual"] += valor_atual
+        else:
+            analise["posicoes_sem_cotacao"].append(ticker)
+        analise["total_recebido"] += proventos
+        analise["proventos_registrados"] += proventos
+        if projecao_mensal is not None:
+            analise["rendimento_mensal"] += projecao_mensal
+            analise["projecao_renda_mensal"] += projecao_mensal
 
         item = {
             "ticker": ticker,
@@ -73,20 +109,30 @@ def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
             "dy": dy_anual,
             "dy_anual": dy_anual,
             "dy_mensal": dy_mensal,
-            "dividendos_recebidos": dividendos_recebidos,
-            "rendimento_mensal": rendimento_mensal,
+            "dividendos_recebidos": proventos,
+            "proventos_registrados": proventos,
+            "projecao_renda_mensal": projecao_mensal,
+            "rendimento_mensal": projecao_mensal,
+            "status_dados": dados.get("status_geral"),
+            "confianca": dados.get("confianca"),
+            "fonte": dados.get("fonte"),
+            "coletado_em": dados.get("coletado_em"),
+            "divergencias": dados.get("divergencias", []),
         }
         analise["fiis"].append(item)
-        db.salvar_cotacao(ticker, preco_atual, cotacao["data"])
 
     analise["valor_atual"] = analise["total_atual"]
-    analise["lucro"] = analise["total_atual"] - analise["total_investido"]
+    analise["lucro"] = (
+        analise["total_atual"] - analise["total_investido"]
+        if not analise["posicoes_sem_cotacao"]
+        else None
+    )
     analise["rendimento_anual"] = analise["rendimento_mensal"] * 12
     if analise["total_atual"] > 0:
         analise["dy_medio"] = (
             analise["rendimento_mensal"] * 12 / analise["total_atual"]
         ) * 100
-    if analise["total_investido"] > 0:
+    if analise["total_investido"] > 0 and analise["lucro"] is not None:
         analise["rentabilidade"] = (
             analise["lucro"] / analise["total_investido"]
         ) * 100

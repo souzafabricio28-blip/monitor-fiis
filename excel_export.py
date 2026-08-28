@@ -8,6 +8,10 @@ from datetime import datetime
 import os
 
 
+def _fmt(valor, prefixo="", sufixo=""):
+    return "N/D" if valor is None else f"{prefixo}{float(valor):.2f}{sufixo}"
+
+
 class FiiExcelExport:
     """Classe para exportar dados de FIIs para Excel"""
     
@@ -39,7 +43,7 @@ class FiiExcelExport:
                     max_length = max(len(str(cell.value or "")) for cell in col)
                     sheet.column_dimensions[col[0].column_letter].width = min(max_length + 2, 30)
         
-        print(f"✅ Arquivo Excel salvo: {nome_arquivo}")
+        print(f"Arquivo Excel salvo: {nome_arquivo}")
         return nome_arquivo
     
     def _criar_df_resumo(self, dados: dict) -> pd.DataFrame:
@@ -48,19 +52,19 @@ class FiiExcelExport:
             "Métrica": [
                 "Total Investido",
                 "Valor Atual",
-                "Lucro/Prejuízo",
-                "Rendimento Mensal",
-                "Rendimento Anual",
+                "Ganho de Capital",
+                "Projeção Mensal",
+                "Proventos Registrados",
                 "DY Médio",
                 "Data da Análise"
             ],
             "Valor": [
-                f"R$ {dados.get('total_investido', 0):.2f}",
-                f"R$ {dados.get('valor_atual', dados.get('total_atual', 0)):.2f}",
-                f"R$ {dados.get('lucro', dados.get('total_atual', 0) - dados.get('total_investido', 0)):.2f}",
-                f"R$ {dados.get('rendimento_mensal', 0):.2f}",
-                f"R$ {dados.get('rendimento_anual', dados.get('rendimento_mensal', 0) * 12):.2f}",
-                f"{dados.get('dy_medio', 0):.2f}%",
+                _fmt(dados.get('total_investido'), "R$ "),
+                _fmt(dados.get('valor_atual', dados.get('total_atual')), "R$ "),
+                _fmt(dados.get('lucro'), "R$ "),
+                _fmt(dados.get('projecao_renda_mensal'), "R$ "),
+                _fmt(dados.get('proventos_registrados'), "R$ "),
+                _fmt(dados.get('dy_medio'), sufixo="%"),
                 datetime.now().strftime("%d/%m/%Y %H:%M")
             ]
         }
@@ -86,14 +90,18 @@ class FiiExcelExport:
             rows.append({
                 'Ticker': fii.get('ticker', ''),
                 'Quantidade': fii.get('quantidade', 0),
-                'Preço Compra': f"R$ {fii.get('preco_compra', 0):.2f}",
-                'Preço Atual': f"R$ {fii.get('preco_atual', 0):.2f}",
-                'Valor Investido': f"R$ {fii.get('valor_investido', 0):.2f}",
-                'Valor Atual': f"R$ {fii.get('valor_atual', 0):.2f}",
-                'Lucro': f"R$ {lucro:.2f}",
-                'Lucro %': f"{lucro_pct:.2f}%",
-                'DY': f"{dy:.2f}%",
-                'Rendimento Mensal': f"R$ {fii.get('rendimento_mensal', 0):.2f}"
+                'Preço Compra': _fmt(fii.get('preco_compra'), "R$ "),
+                'Preço Atual': _fmt(fii.get('preco_atual'), "R$ "),
+                'Valor Investido': _fmt(fii.get('valor_investido'), "R$ "),
+                'Valor Atual': _fmt(fii.get('valor_atual'), "R$ "),
+                'Ganho de Capital': _fmt(lucro, "R$ "),
+                'Lucro %': _fmt(lucro_pct, sufixo="%"),
+                'DY': _fmt(dy, sufixo="%"),
+                'Projeção Mensal': _fmt(fii.get('projecao_renda_mensal'), "R$ "),
+                'Proventos Registrados': _fmt(fii.get('proventos_registrados'), "R$ "),
+                'Fonte': fii.get('fonte', 'N/D'),
+                'Confiança': fii.get('confianca', 'N/D'),
+                'Status Dados': fii.get('status_dados', 'N/D'),
             })
         
         return pd.DataFrame(rows)
@@ -120,7 +128,7 @@ class FiiExcelExport:
                     max_length = max(len(str(cell.value or "")) for cell in col)
                     sheet.column_dimensions[col[0].column_letter].width = min(max_length + 2, 30)
         
-        print(f"✅ Arquivo de comparação salvo: {nome_arquivo}")
+        print(f"Arquivo de comparação salvo: {nome_arquivo}")
         return nome_arquivo
     
     def exportar_historico(self, historico: list, nome_arquivo: str = None):

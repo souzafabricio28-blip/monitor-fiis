@@ -4,7 +4,8 @@ Dados de mercado via Yahoo Finance + Investidor10, com DY timezone-safe e cache.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 import pandas as pd
@@ -15,6 +16,36 @@ from investidor10 import Investidor10API
 _api = Investidor10API()
 _mem_cache: Dict[str, tuple] = {}
 CACHE_MINUTES = 20
+LIMITE_DIVERGENCIA = 10.0
+logger = logging.getLogger(__name__)
+
+
+def _agora_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def _registrar_meta(
+    dados: Dict,
+    indicador: str,
+    valor,
+    fonte: str,
+    *,
+    confianca: str = "media",
+    status: str = "ok",
+) -> None:
+    dados[indicador] = valor
+    dados.setdefault("qualidade", {})[indicador] = {
+        "fonte": fonte,
+        "coletado_em": _agora_iso(),
+        "status": status,
+        "confianca": confianca,
+    }
+
+
+def _divergencia_percentual(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    if a is None or b is None or a == 0:
+        return None
+    return abs(float(a) - float(b)) / abs(float(a)) * 100
 
 
 def _naive_index(series: pd.Series) -> pd.Series:
@@ -58,9 +89,11 @@ def calcular_dy(ticker: str, preco: Optional[float] = None) -> Optional[Dict]:
             "dy_mensal": dy_anual / 12,
             "total_dividendos_12m": total,
             "preco_atual": preco,
-            "data_calculo": datetime.now().strftime("%Y-%m-%d"),
+            "data_calculo": _agora_iso(),
+            "fonte": "Yahoo Finance (proventos 12m)",
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("Falha ao calcular DY de %s: %s", ticker, exc)
         return None
 
 
@@ -77,23 +110,26 @@ def buscar_cotacao(ticker: str) -> Optional[Dict]:
         return {
             "ticker": ticker.upper().replace(".SA", ""),
             "preco_atual": preco,
-            "variacao_dia": preco - abertura,
+            "variacao_dia": preco - anterior,
             "variacao_pct": ((preco - anterior) / anterior) * 100 if anterior else 0,
-            "data": datetime.now().strftime("%Y-%m-%d"),
+            "variacao": ((preco - anterior) / anterior) * 100 if anterior else 0,
+            "data": _agora_iso(),
             "volume": int(hist["Volume"].iloc[-1]) if "Volume" in hist else 0,
             "abertura": abertura,
             "maxima_dia": float(hist["High"].iloc[-1]),
             "minima_dia": float(hist["Low"].iloc[-1]),
             "preco_anterior": anterior,
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("Falha ao buscar cotação de %s: %s", ticker, exc)
         return None
 
 
 def buscar_historico(ticker: str, periodo: str = "3mo") -> Optional[pd.DataFrame]:
     try:
         return yf.Ticker(f"{ticker.upper().replace('.SA', '')}.SA").history(period=periodo)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Falha ao buscar histórico de %s: %s", ticker, exc)
         return None
 
 
@@ -101,12 +137,13 @@ def buscar_dividendos_serie(ticker: str) -> Optional[pd.Series]:
     try:
         divs = yf.Ticker(f"{ticker.upper().replace('.SA', '')}.SA").dividends
         return _naive_index(divs) if divs is not None else None
-    except Exception:
+    except Exception as exc:
+        logger.warning("Falha ao buscar dividendos de %s: %s", ticker, exc)
         return None
 
 
 def buscar_dados_completos(ticker: str, db=None, usar_cache: bool = True) -> Dict:
-    """Yahoo + Investidor10, com cache em memória e opcionalmente no banco."""
+    """Fonte única de mercado, com proveniência, N/D e validação cruzada."""
     ticker = ticker.upper().replace(".SA", "").strip()
 
     if usar_cache and db is not None:
@@ -123,68 +160,125 @@ def buscar_dados_completos(ticker: str, db=None, usar_cache: bool = True) -> Dic
             out["fonte_cache"] = "memoria"
             return out
 
-    dados: Dict = {"ticker": ticker}
+    dados: Dict = {
+        "ticker": ticker,
+        "nome": ticker,
+        "preco_atual": None,
+        "preco": None,
+        "dy": None,
+        "dy_mensal": None,
+        "p_vp": None,
+        "patrimonio": None,
+        "vacancia": None,
+        "setor": None,
+        "qualidade": {},
+        "divergencias": [],
+        "coletado_em": _agora_iso(),
+        "horario_dados": agora.strftime("%d/%m/%Y %H:%M:%S"),
+    }
+    fontes = []
+
+    cotacao = buscar_cotacao(ticker)
+    if cotacao:
+        dados.update(cotacao)
+        dados["preco"] = cotacao["preco_atual"]
+        _registrar_meta(
+            dados, "preco_atual", cotacao["preco_atual"], "Yahoo Finance", confianca="alta"
+        )
+        dados["preco"] = cotacao["preco_atual"]
+        fontes.append("Yahoo Finance")
+    else:
+        _registrar_meta(
+            dados, "preco_atual", None, "Yahoo Finance", confianca="baixa", status="indisponivel"
+        )
 
     try:
-        cotacao = buscar_cotacao(ticker)
-        if cotacao:
-            dados.update(cotacao)
-
-        acao = yf.Ticker(f"{ticker}.SA")
-        info = acao.info or {}
+        info = yf.Ticker(f"{ticker}.SA").info or {}
         dados["nome"] = info.get("longName") or info.get("shortName") or ticker
-        dy_raw = info.get("dividendYield") or 0
-        dados["dy"] = dy_raw * 100 if 0 < dy_raw < 1 else dy_raw
-        dados["p_vp"] = info.get("priceToBook") or 0
-        dados["patrimonio"] = info.get("totalAssets") or 0
-        dados["setor"] = info.get("sector") or "FII"
-        dados["moeda"] = info.get("currency", "BRL")
-        dados["horario_dados"] = agora.strftime("%d/%m/%Y %H:%M:%S")
-        dados["fonte"] = "Yahoo Finance"
+        dados["moeda"] = info.get("currency") or "BRL"
+        if info.get("sector"):
+            _registrar_meta(dados, "setor", info["sector"], "Yahoo Finance", confianca="baixa")
+    except Exception as exc:
+        logger.warning("Falha nos metadados Yahoo de %s: %s", ticker, exc)
 
-        dy_calc = calcular_dy(ticker, dados.get("preco_atual"))
-        if dy_calc:
-            dados["dy"] = dy_calc["dy_anual"]
-            dados["dy_mensal"] = dy_calc["dy_mensal"]
-            dados["total_dividendos_12m"] = dy_calc["total_dividendos_12m"]
+    dy_calc = calcular_dy(ticker, dados.get("preco_atual"))
+    if dy_calc:
+        _registrar_meta(
+            dados, "dy", dy_calc["dy_anual"], "Yahoo Finance (proventos 12m)", confianca="alta"
+        )
+        dados["dy_mensal"] = dy_calc["dy_mensal"]
+        dados["total_dividendos_12m"] = dy_calc["total_dividendos_12m"]
+    else:
+        _registrar_meta(
+            dados,
+            "dy",
+            None,
+            "Yahoo Finance (proventos 12m)",
+            confianca="baixa",
+            status="indisponivel",
+        )
 
-        inv = _api.buscar_fii(ticker)
-        if "erro" not in inv:
-            if inv.get("dy"):
-                dados["dy_investidor10"] = inv["dy"]
-                if not dados.get("dy"):
-                    dados["dy"] = inv["dy"]
-            if inv.get("p_vp"):
-                dados["p_vp"] = inv["p_vp"]
-            if inv.get("vacancia") is not None:
-                dados["vacancia"] = inv["vacancia"]
-            if inv.get("patrimonio"):
-                dados["patrimonio"] = inv["patrimonio"]
-            if inv.get("setor"):
-                dados["setor"] = inv["setor"]
-            if inv.get("preco") and not dados.get("preco_atual"):
-                dados["preco_atual"] = inv["preco"]
-                dados["preco"] = inv["preco"]
-            dados["fonte"] = "Yahoo Finance + Investidor10"
+    inv = _api.buscar_fii(ticker)
+    if "erro" not in inv:
+        fontes.append("Investidor10")
+        dados["nome"] = inv.get("nome") or dados["nome"]
+        for campo in ("p_vp", "patrimonio", "vacancia", "setor"):
+            valor = inv.get(campo)
+            if valor is not None:
+                _registrar_meta(dados, campo, valor, "Investidor10", confianca="media")
+            elif dados.get(campo) is None:
+                _registrar_meta(
+                    dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
+                )
 
-        if not dados.get("preco_atual") and dados.get("preco"):
-            dados["preco_atual"] = dados["preco"]
+        preco_inv = inv.get("preco")
+        if dados.get("preco_atual") is None and preco_inv is not None:
+            _registrar_meta(
+                dados, "preco_atual", preco_inv, "Investidor10", confianca="baixa"
+            )
+            dados["preco"] = preco_inv
+        div_preco = _divergencia_percentual(dados.get("preco_atual"), preco_inv)
+        div_dy = _divergencia_percentual(dados.get("dy"), inv.get("dy"))
+        for indicador, divergencia in (("preco_atual", div_preco), ("dy", div_dy)):
+            if divergencia is not None:
+                dados["qualidade"][indicador]["divergencia_pct"] = round(divergencia, 2)
+                if divergencia > LIMITE_DIVERGENCIA:
+                    dados["qualidade"][indicador]["status"] = "divergente"
+                    dados["qualidade"][indicador]["confianca"] = "baixa"
+                    dados["divergencias"].append(
+                        f"{indicador}: fontes divergem {divergencia:.1f}%"
+                    )
+        dados["dy_investidor10"] = inv.get("dy")
+    else:
+        dados["erro_investidor10"] = inv.get("erro")
+        for campo in ("p_vp", "patrimonio", "vacancia"):
+            if campo not in dados["qualidade"]:
+                _registrar_meta(
+                    dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
+                )
 
-        _mem_cache[ticker] = (dict(dados), agora)
-        if db is not None and "erro" not in dados:
-            try:
-                db.set_cache(ticker, dados)
-                if dados.get("preco_atual"):
-                    db.salvar_cotacao(ticker, float(dados["preco_atual"]))
-            except Exception:
-                pass
+    dados["fonte"] = " + ".join(dict.fromkeys(fontes)) or "fontes indisponíveis"
+    disponiveis = sum(
+        dados.get(campo) is not None
+        for campo in ("preco_atual", "dy", "p_vp", "patrimonio", "vacancia")
+    )
+    dados["status_geral"] = (
+        "ok" if disponiveis == 5 and not dados["divergencias"]
+        else "parcial" if disponiveis
+        else "indisponivel"
+    )
+    dados["confianca"] = (
+        "alta" if dados["status_geral"] == "ok"
+        else "media" if dados["status_geral"] == "parcial" and not dados["divergencias"]
+        else "baixa"
+    )
 
-        return dados
-    except Exception as e:
-        inv = _api.buscar_fii(ticker)
-        if "erro" in inv:
-            return {"ticker": ticker, "erro": str(e)}
-        inv["preco_atual"] = inv.get("preco", 0)
-        inv["horario_dados"] = agora.strftime("%d/%m/%Y %H:%M:%S")
-        inv["fonte"] = "Investidor10 (Fallback)"
-        return inv
+    _mem_cache[ticker] = (dict(dados), agora)
+    if db is not None:
+        try:
+            db.set_cache(ticker, dados)
+            if dados.get("preco_atual") is not None:
+                db.salvar_cotacao(ticker, float(dados["preco_atual"]))
+        except Exception as exc:
+            logger.warning("Falha ao persistir cache/cotação de %s: %s", ticker, exc)
+    return dados

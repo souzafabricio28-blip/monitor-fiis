@@ -8,6 +8,14 @@ from datetime import datetime
 import os
 
 
+def _moeda(valor):
+    return "N/D" if valor is None else f"R$ {float(valor):.2f}"
+
+
+def _percentual(valor):
+    return "N/D" if valor is None else f"{float(valor):.2f}%"
+
+
 class FiiPDFReport:
     """Classe para gerar relatórios PDF de FIIs"""
     
@@ -41,7 +49,7 @@ class FiiPDFReport:
         
         # Salvar
         self.pdf.output(nome_arquivo)
-        print(f"✅ Relatório salvo: {nome_arquivo}")
+        print(f"Relatório salvo: {nome_arquivo}")
         
         return nome_arquivo
     
@@ -76,13 +84,13 @@ class FiiPDFReport:
         self.pdf.set_text_color(80, 80, 80)
         
         valor_atual = dados.get('valor_atual', dados.get('total_atual', 0))
-        lucro = dados.get('lucro', valor_atual - dados.get('total_investido', 0))
+        lucro = dados.get('lucro')
         metricas = [
-            ("Total Investido", f"R$ {dados.get('total_investido', 0):.2f}"),
-            ("Valor Atual", f"R$ {valor_atual:.2f}"),
-            ("Lucro/Prejuizo", f"R$ {lucro:.2f}"),
-            ("Rendimento Mensal", f"R$ {dados.get('rendimento_mensal', 0):.2f}"),
-            ("Rendimento Anual", f"R$ {dados.get('rendimento_anual', dados.get('rendimento_mensal', 0) * 12):.2f}"),
+            ("Total Investido", _moeda(dados.get('total_investido'))),
+            ("Valor Atual (pode ser parcial)", _moeda(valor_atual)),
+            ("Ganho de Capital", _moeda(lucro)),
+            ("Projecao Mensal", _moeda(dados.get('projecao_renda_mensal'))),
+            ("Proventos Registrados", _moeda(dados.get('proventos_registrados'))),
         ]
         
         for titulo, valor in metricas:
@@ -125,13 +133,15 @@ class FiiPDFReport:
             dy = fii.get('dy', fii.get('dy_anual', 0))
             dados_fii = [
                 ("Quantidade", f"{fii.get('quantidade', 0)} cotas"),
-                ("Preco Compra", f"R$ {fii.get('preco_compra', 0):.2f}"),
-                ("Preco Atual", f"R$ {fii.get('preco_atual', 0):.2f}"),
-                ("Valor Investido", f"R$ {fii.get('valor_investido', 0):.2f}"),
-                ("Valor Atual", f"R$ {fii.get('valor_atual', 0):.2f}"),
-                ("Lucro/Prejuizo", f"R$ {lucro:.2f} ({lucro_pct:.2f}%)"),
-                ("DY Anual", f"{dy:.2f}%"),
-                ("Rendimento Mensal", f"R$ {fii.get('rendimento_mensal', 0):.2f}"),
+                ("Preco Compra", _moeda(fii.get('preco_compra'))),
+                ("Preco Atual", _moeda(fii.get('preco_atual'))),
+                ("Valor Investido", _moeda(fii.get('valor_investido'))),
+                ("Valor Atual", _moeda(fii.get('valor_atual'))),
+                ("Ganho de Capital", f"{_moeda(lucro)} ({_percentual(lucro_pct)})"),
+                ("DY Anual", _percentual(dy)),
+                ("Projecao Mensal", _moeda(fii.get('projecao_renda_mensal'))),
+                ("Proventos Registrados", _moeda(fii.get('proventos_registrados'))),
+                ("Fonte/Confianca", f"{fii.get('fonte', 'N/D')} / {fii.get('confianca', 'N/D')}"),
             ]
             
             for titulo, valor in dados_fii:
@@ -160,7 +170,7 @@ class FiiPDFReport:
         self.pdf.set_text_color(80, 80, 80)
         
         for fii in fiis:
-            valor = fii.get('valor_atual', 0)
+            valor = fii.get('valor_atual') or 0
             percentual = (valor / total * 100) if total > 0 else 0
             
             # Barra de progresso visual

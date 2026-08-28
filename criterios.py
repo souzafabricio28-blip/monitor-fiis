@@ -323,7 +323,23 @@ def _buscar_fiis_com(ticker):
 
 
 def _buscar_base(ticker, tipo):
-    """Coleta dados base via Yahoo Finance + Investidor10 (melhor esforço)."""
+    """Coleta dados pela fonte única; ações mantêm o caminho legado."""
+    if tipo == "fii":
+        from market_data import buscar_dados_completos
+
+        dados = buscar_dados_completos(ticker)
+        dados_fiis = _buscar_fiis_com(ticker)
+        if dados_fiis:
+            dados["setor_fiis"] = " ".join([
+                dados_fiis.get("setor_atuacao") or "",
+                dados_fiis.get("subsetor_atuacao") or "",
+                dados_fiis.get("segmento_ambima") or "",
+                dados_fiis.get("tipo_anbima") or "",
+            ]).strip()
+            dados["nome"] = dados_fiis.get("nome_pregao") or dados.get("nome")
+        dados["setor_inv"] = dados.get("setor")
+        return dados
+
     dados = {"ticker": ticker, "tipo": tipo}
     try:
         acao = yf.Ticker(f"{ticker}.SA")
@@ -343,21 +359,6 @@ def _buscar_base(ticker, tipo):
         dados["nome"] = ticker
         dados["setor"] = ""
 
-    if tipo == "fii":
-        dados_inv = _buscar_investidor10(ticker)
-        if dados_inv:
-            dados["vacancia"] = dados_inv.get("vacancia")
-            dados["setor_inv"] = dados_inv.get("setor")
-            dados["nome"] = dados_inv.get("nome") or dados.get("nome")
-        dados_fiis = _buscar_fiis_com(ticker)
-        if dados_fiis:
-            dados["setor_fiis"] = " ".join([
-                dados_fiis.get("setor_atuacao") or "",
-                dados_fiis.get("subsetor_atuacao") or "",
-                dados_fiis.get("segmento_ambima") or "",
-                dados_fiis.get("tipo_anbima") or "",
-            ]).strip()
-            dados["nome"] = dados_fiis.get("nome_pregao") or dados.get("nome")
     return dados
 
 
@@ -395,7 +396,7 @@ def avaliar_fii(ticker):
     if preco is None:
         preco = 0
 
-    dy_m = _dy_mensal(ticker, preco)
+    dy_m = dados.get("dy_mensal")
     if dy_m is not None:
         criterios.append({
             "crit": "DY Mensal 12m (0,60–1,50%)",
