@@ -566,7 +566,10 @@ def render_painel(itens: list, analise: dict, mostrar_valores: bool):
     with s2:
         st.badge(f"{len(acoes)} ações", icon=":material/show_chart:", color="orange")
     with s3:
-        st.caption("Cotações Yahoo em cache · Investidor10 em Atualizar critérios / Indicadores")
+        st.caption(
+            "Cotações Yahoo em cache · fundamentos em Atualizar critérios / Indicadores "
+            "(Investidor10, Fundamentus, Funds Explorer e outras)"
+        )
     _kpis(totais, mostrar_valores)
 
     e1, e2, e3 = st.columns([1.1, 1.1, 1], gap="medium")

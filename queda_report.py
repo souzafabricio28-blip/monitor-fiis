@@ -6,6 +6,7 @@ Não inventa causa. Sem notícia recente o motivo fica N/D.
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -164,12 +165,74 @@ def _noticias_google(ticker: str, limite: int) -> List[dict]:
     return itens
 
 
+def _parse_infomoney_posts(posts, limite: int) -> List[dict]:
+    """Converte o JSON do WP do InfoMoney em manchetes. Sem inventar texto."""
+    itens: List[dict] = []
+    if not isinstance(posts, list):
+        return itens
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+        titulo_raw = post.get("title") or {}
+        if isinstance(titulo_raw, dict):
+            titulo = html.unescape(
+                re.sub(r"<[^>]+>", "", str(titulo_raw.get("rendered") or ""))
+            )
+        else:
+            titulo = str(titulo_raw)
+        titulo = _limpar_titulo(titulo)
+        if not titulo:
+            continue
+        excerpt_raw = post.get("excerpt") or {}
+        if isinstance(excerpt_raw, dict):
+            excerpt = html.unescape(
+                re.sub(r"<[^>]+>", " ", str(excerpt_raw.get("rendered") or ""))
+            )
+        else:
+            excerpt = str(excerpt_raw or "")
+        excerpt = re.sub(r"\s+", " ", excerpt).strip()
+        link = str(post.get("link") or "").strip()
+        if not link:
+            continue
+        itens.append(
+            {
+                "titulo": titulo[:220],
+                "fonte": "InfoMoney",
+                "link": link,
+                "origem": "InfoMoney",
+                "resumo": excerpt[:400],
+            }
+        )
+        if len(itens) >= limite:
+            break
+    return itens
+
+
+def _noticias_infomoney(ticker: str, limite: int) -> List[dict]:
+    url = (
+        "https://www.infomoney.com.br/wp-json/wp/v2/posts"
+        f"?search={quote_plus(ticker)}&per_page={limite}&_fields=link,title,excerpt,date"
+    )
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        if resp.status_code != 200:
+            return []
+        return _parse_infomoney_posts(resp.json(), limite)
+    except Exception as exc:
+        logger.warning("Falha nas notícias InfoMoney de %s: %s", ticker, exc)
+        return []
+
+
 def buscar_noticias(ticker: str, limite: int = 8) -> List[dict]:
-    """Manchetes recentes (Yahoo + Google News). Sem inventar texto."""
+    """Manchetes recentes (InfoMoney + Yahoo + Google News). Sem inventar texto."""
     ticker = (ticker or "").upper().replace(".SA", "").strip()
     vistos = set()
     juntos: List[dict] = []
-    for bloco in (_noticias_yahoo(ticker, limite), _noticias_google(ticker, limite)):
+    for bloco in (
+        _noticias_infomoney(ticker, limite),
+        _noticias_yahoo(ticker, limite),
+        _noticias_google(ticker, limite),
+    ):
         for item in bloco:
             chave = item["titulo"].casefold()
             if chave in vistos:

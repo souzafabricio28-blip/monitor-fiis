@@ -18,7 +18,9 @@ Também nesta sequência:
 
 - Chave **OpenRouter** ligada no Vigia (`OPENROUTER_API_KEY` no `.env`). Prefixo `sk-or-` vai para `https://openrouter.ai/api/v1`, não para a OpenAI.
 - Visual Status Invest (carvão + laranja). Indicadores Investidor10. Fundos e ações separados.
-- **Fontes de dados (29/08):** Yahoo + Investidor10 + Fundamentus + Funds Explorer + Brapi + Mais Retorno + Google Finance + PTAX (Bacen). Status Invest/Clube FII bloqueiam scrape. Brapi em FII pede `BRAPI_TOKEN`.
+- **Fontes de dados (29/08):** Yahoo + Investidor10 + Fundamentus + Funds Explorer + Brapi + Mais Retorno + PTAX (Bacen, cache 30 min). Google Finance saiu do pool paralelo (página JS, quase sempre vazia). Status Invest/Clube FII bloqueiam scrape. Brapi em FII pede `BRAPI_TOKEN`.
+- **Indicadores:** quadro comparativo preço/DY/P/VP por fonte na auditoria; PTAX visível no cabeçalho; preço do Funds Explorer pega o 1º `R$ NN,NN` da caixa live.
+- **Quedas 10%:** manchetes também do InfoMoney (WP JSON), além de Yahoo e Google News.
 
 ## O que o app avisa no WhatsApp
 

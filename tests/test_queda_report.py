@@ -1,4 +1,5 @@
 from queda_report import (
+    _parse_infomoney_posts,
     gatilhos_de_queda,
     gerar_pdf_queda_bytes,
     montar_resumo,
@@ -45,3 +46,20 @@ def test_pdf_queda_bytes():
     resumo = montar_resumo("PETR4", queda, [{"titulo": "Noticia teste", "fonte": "Agencia"}])
     pdf = gerar_pdf_queda_bytes(resumo)
     assert pdf[:4] == b"%PDF"
+
+
+def test_parse_infomoney_posts():
+    posts = [
+        {
+            "title": {"rendered": "MXRF11 recua ap&#243;s resultado"},
+            "excerpt": {"rendered": "<p>O fundo caiu no preg&#227;o.</p>"},
+            "link": "https://www.infomoney.com.br/mercados/mxrf11-recua/",
+        },
+        {"title": {"rendered": "Sem link"}, "excerpt": {"rendered": ""}, "link": ""},
+    ]
+    itens = _parse_infomoney_posts(posts, 8)
+    assert len(itens) == 1
+    assert itens[0]["titulo"] == "MXRF11 recua após resultado"
+    assert itens[0]["origem"] == "InfoMoney"
+    assert "caiu" in itens[0]["resumo"]
+    assert itens[0]["link"].startswith("https://www.infomoney.com.br/")

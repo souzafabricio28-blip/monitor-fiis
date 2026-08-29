@@ -1,6 +1,6 @@
 """
 Dados de mercado via Yahoo Finance, Investidor10 e fontes extras
-(Fundamentus, Funds Explorer, Brapi, Mais Retorno, Google Finance, PTAX).
+(Fundamentus, Funds Explorer, Brapi, Mais Retorno, PTAX).
 """
 
 from __future__ import annotations

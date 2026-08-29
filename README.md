@@ -17,7 +17,8 @@ destaque laranja `#F39200`, texto `#F5F5F5` e menu lateral carvão (nunca branco
 no branco). O dashboard carrega cotações em lote no Yahoo e reutiliza cache; scrape do
 Investidor10 (vacância, liquidez, cotistas, VP/cota, taxa de adm., variação 12M)
 roda em **Atualizar critérios** ou na página **Indicadores**, junto com Fundamentus,
-Funds Explorer, Brapi, Mais Retorno, Google Finance e PTAX do Banco Central.
+Funds Explorer, Brapi, Mais Retorno e PTAX do Banco Central (cache de 30 min).
+A auditoria de Indicadores mostra um quadro comparativo (preço, DY, P/VP) por fonte.
 Ausente permanece N/D; as fontes não se sobrescrevem — divergência vai para a
 auditoria.
 
@@ -32,8 +33,8 @@ soma variação de preço e proventos registados (cotação ausente permanece N/
 A aba Carteira mostra o histórico de transações. A watchlist dispara WhatsApp
 no +55 11 97367-4455 quando o preço atinge o alvo (`WHATSAPP_APIKEY`). A
 preferência Mostrar/Ocultar valores fica gravada no banco. A aba **Quedas 10%**
-gera PDF com manchetes quando um ativo cai 10% ou mais; sem notícia o motivo
-é N/D.
+gera PDF com manchetes (InfoMoney, Yahoo e Google News) quando um ativo cai 10%
+ou mais; sem notícia o motivo é N/D.
 
 A diversificação usa o catálogo (mostra o que falta: shopping, empresarial,
 galpão) sem esperar o scrape. Os critérios partem do Yahoo Finance e da tabela

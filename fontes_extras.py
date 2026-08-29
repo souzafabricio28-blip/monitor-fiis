@@ -10,9 +10,10 @@ import json
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from typing import Callable, Dict, List, Optional
+from typing import Callable, List, Optional
 from urllib.parse import quote
 
 import requests
@@ -164,7 +165,10 @@ def parse_fundsexplorer(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     box = soup.select_one(".quotation__grid__box")
     if box:
-        out["preco"] = extrair_valor_br(box.get_text(" ", strip=True))
+        texto_box = box.get_text(" ", strip=True)
+        # A caixa live é "R$ 9,30 Cotação atual 9,24 0,65%" — o 1º R$ NN,NN é o preço.
+        m_rs = re.search(r"R\$\s*([\d.]*\d,\d{2})", texto_box)
+        out["preco"] = extrair_valor_br(m_rs.group(1) if m_rs else texto_box)
     bloco = soup.select_one("[class*='indicators']")
     texto = bloco.get_text("|", strip=True) if bloco else soup.get_text("|", strip=True)
     texto = re.sub(r"\s*\|\s*", "|", texto)
@@ -353,8 +357,21 @@ def buscar_google_finance(ticker: str) -> dict:
         return out
 
 
-def buscar_ptax() -> dict:
-    """Dólar PTAX (Banco Central). Fonte macro, não cotação do ticker."""
+_PTAX_CACHE: dict = {"ts": 0.0, "dados": None}
+_PTAX_TTL_S = 30 * 60
+
+
+def buscar_ptax(*, forcar: bool = False) -> dict:
+    """Dólar PTAX (Banco Central). Cache de 30 min — não precisa a cada ticker."""
+    agora = time.time()
+    cached = _PTAX_CACHE.get("dados")
+    if (
+        not forcar
+        and isinstance(cached, dict)
+        and cached.get("usd_brl") is not None
+        and agora - float(_PTAX_CACHE["ts"]) < _PTAX_TTL_S
+    ):
+        return dict(cached)
     fim = datetime.now()
     ini = fim - timedelta(days=7)
     d1 = ini.strftime("%m-%d-%Y")
@@ -375,6 +392,9 @@ def buscar_ptax() -> dict:
         out["usd_brl"] = float(venda) if venda else None
         if out["usd_brl"] is None:
             out["erro"] = "sem cotação"
+        else:
+            _PTAX_CACHE["ts"] = agora
+            _PTAX_CACHE["dados"] = dict(out)
         return out
     except (requests.RequestException, ValueError, TypeError) as exc:
         out["erro"] = str(exc)[:160]
@@ -389,19 +409,23 @@ def _chamar(fn: Callable[[str], dict], ticker: str) -> dict:
         return _vazio(getattr(fn, "__name__", "fonte"), erro=str(exc)[:160])
 
 
+# Google Finance fica de fora do pool: a página é JS e quase sempre
+# devolve vazio, só atrasando o Indicadores em ~8 s. O parser permanece
+# para testes e uso pontual.
+FONTES_PARALELAS: tuple[Callable[[str], dict], ...] = (
+    buscar_fundamentus,
+    buscar_fundsexplorer,
+    buscar_brapi,
+    buscar_maisretorno,
+)
+
+
 def consultar_fontes_extras(ticker: str) -> List[dict]:
-    """Dispara as fontes em paralelo. PTAX entra no fim (macro)."""
+    """Dispara as fontes em paralelo. PTAX entra no fim (macro, com cache)."""
     t = ticker_limpo(ticker)
-    jobs = [
-        buscar_fundamentus,
-        buscar_fundsexplorer,
-        buscar_brapi,
-        buscar_maisretorno,
-        buscar_google_finance,
-    ]
     resultados: List[dict] = []
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futuros = {pool.submit(_chamar, fn, t): fn for fn in jobs}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futuros = {pool.submit(_chamar, fn, t): fn for fn in FONTES_PARALELAS}
         for fut in as_completed(futuros):
             resultados.append(fut.result())
     ordem = {
@@ -409,7 +433,6 @@ def consultar_fontes_extras(ticker: str) -> List[dict]:
         "Funds Explorer": 1,
         "Brapi": 2,
         "Mais Retorno": 3,
-        "Google Finance": 4,
     }
     resultados.sort(key=lambda d: ordem.get(d.get("fonte") or "", 9))
     ptax = buscar_ptax()
@@ -429,6 +452,51 @@ CAMPOS_PREENCHER = (
     ("ultimo_rendimento", "ultimo_rendimento"),
     ("vp_cota", "vp_cota"),
 )
+
+
+def _valor_da_fonte(dados: dict, campo: str, nome_fonte: str):
+    meta = (dados.get("qualidade") or {}).get(campo) or {}
+    fonte = str(meta.get("fonte") or "")
+    if fonte == nome_fonte or fonte.startswith(nome_fonte):
+        return dados.get(campo)
+    extra = meta.get(f"valor_{nome_fonte}")
+    if extra not in (None, ""):
+        return extra
+    return None
+
+
+def montar_comparativo_fontes(dados: dict, extras: List[dict]) -> List[dict]:
+    """Uma linha por fonte com preço, DY e P/VP originais (N/D não vira 0)."""
+    linhas: List[dict] = [
+        {
+            "fonte": "Yahoo Finance",
+            "preco": _valor_da_fonte(dados, "preco_atual", "Yahoo Finance"),
+            "dy": _valor_da_fonte(dados, "dy", "Yahoo Finance"),
+            "p_vp": _valor_da_fonte(dados, "p_vp", "Yahoo Finance"),
+        }
+    ]
+    i10 = {
+        "fonte": "Investidor10",
+        "preco": _valor_da_fonte(dados, "preco_atual", "Investidor10"),
+        "dy": dados.get("dy_investidor10")
+        if dados.get("dy_investidor10") is not None
+        else _valor_da_fonte(dados, "dy", "Investidor10"),
+        "p_vp": _valor_da_fonte(dados, "p_vp", "Investidor10"),
+    }
+    if any(i10[k] is not None for k in ("preco", "dy", "p_vp")):
+        linhas.append(i10)
+    for extra in extras:
+        if not isinstance(extra, dict) or "usd_brl" in extra:
+            continue
+        linhas.append(
+            {
+                "fonte": extra.get("fonte") or "fonte",
+                "preco": extra.get("preco"),
+                "dy": extra.get("dy"),
+                "p_vp": extra.get("p_vp"),
+            }
+        )
+    return linhas
 
 
 def aplicar_fontes_extras(
@@ -484,4 +552,5 @@ def aplicar_fontes_extras(
                     f"{destino}: {nome} diverge {div:.1f}%"
                 )
     dados["fontes_consultadas"] = consultadas
+    dados["comparativo_fontes"] = montar_comparativo_fontes(dados, extras)
     return usadas

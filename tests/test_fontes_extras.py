@@ -1,6 +1,8 @@
 from fontes_extras import (
+    FONTES_PARALELAS,
     aplicar_fontes_extras,
     eh_fii,
+    montar_comparativo_fontes,
     parse_brapi,
     parse_fundamentus,
     parse_fundsexplorer,
@@ -18,7 +20,7 @@ FUNDAMENTUS_PETR4 = """
 """
 
 FUNDS_EXPLORER_MXRF = """
-<div class="quotation"><div class="quotation__grid__box alta">R$ 9,30 Cotação atual</div></div>
+<div class="quotation"><div class="quotation__grid__box alta">R$ 9,30 Cotação atual 9,24 0,65%</div></div>
 <div class="indicators">
 Liquidez Média Diária | 16,0 M | Último Rendimento | R$ | 0,10 |
 Dividend Yield | 12,85 | % | últ. 12 meses | Patrimônio Líquido | R$ | 5,3 B |
@@ -131,3 +133,64 @@ def test_aplicar_nao_zera_nem_sobrescreve_yahoo():
     assert dados["p_vp"] == 1.01
     assert "Fundamentus" in usadas
     assert any("preco_atual" in x for x in dados["divergencias"])
+    comparativo = dados["comparativo_fontes"]
+    fund = next(l for l in comparativo if l["fonte"] == "Fundamentus")
+    assert fund["preco"] == 8.0
+    assert fund["dy"] == 12.0
+    yahoo = next(l for l in comparativo if l["fonte"] == "Yahoo Finance")
+    assert yahoo["preco"] is None  # qualidade não registrou Yahoo neste teste
+
+
+def test_google_finance_fora_do_pool_paralelo():
+    nomes = [fn.__name__ for fn in FONTES_PARALELAS]
+    assert "buscar_google_finance" not in nomes
+    assert "buscar_fundamentus" in nomes
+
+
+def test_ptax_usa_cache(monkeypatch):
+    import fontes_extras
+
+    fontes_extras._PTAX_CACHE["ts"] = 0.0
+    fontes_extras._PTAX_CACHE["dados"] = None
+    chamadas = []
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"value": [{"cotacaoVenda": 5.4321}]}
+
+    def fake_get(url, *, accept_json=False):
+        chamadas.append(url)
+        return _Resp()
+
+    monkeypatch.setattr(fontes_extras, "_get", fake_get)
+    a = fontes_extras.buscar_ptax()
+    b = fontes_extras.buscar_ptax()
+    assert a["usd_brl"] == 5.4321
+    assert b["usd_brl"] == 5.4321
+    assert len(chamadas) == 1
+    c = fontes_extras.buscar_ptax(forcar=True)
+    assert c["usd_brl"] == 5.4321
+    assert len(chamadas) == 2
+
+
+def test_comparativo_reconhece_yahoo_proventos():
+    linhas = montar_comparativo_fontes(
+        {
+            "preco_atual": 9.3,
+            "dy": 12.0,
+            "p_vp": None,
+            "qualidade": {
+                "preco_atual": {"fonte": "Yahoo Finance"},
+                "dy": {"fonte": "Yahoo Finance (proventos 12m)"},
+            },
+            "dy_investidor10": 11.5,
+        },
+        [],
+    )
+    yahoo = next(l for l in linhas if l["fonte"] == "Yahoo Finance")
+    assert yahoo["preco"] == 9.3
+    assert yahoo["dy"] == 12.0
+    i10 = next(l for l in linhas if l["fonte"] == "Investidor10")
+    assert i10["dy"] == 11.5

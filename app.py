@@ -318,7 +318,7 @@ def exibir_quedas():
     pagina(
         "Quedas de 10%",
         f"Quando o preço cai {LIMITE_QUEDA_PCT:.0f}% ou mais (vs compra, vs ontem "
-        "ou vs a máxima do mês), o sistema junta as manchetes do Yahoo e do Google News "
+        "ou vs a máxima do mês), o sistema junta as manchetes do InfoMoney, Yahoo e Google News "
         "e gera um PDF. Sem notícia o motivo fica N/D — não inventamos a causa. "
         "O download vai para o seu computador pelo navegador.",
     )
@@ -812,7 +812,7 @@ def exibir_buscar_fii():
     if not buscar:
         return
 
-    with st.spinner("Buscando no Yahoo e no Investidor10..."):
+    with st.spinner("Consultando Yahoo, Investidor10, Fundamentus e outras fontes..."):
         dados = buscar_dados_tempo_real(ticker, completo=True)
 
     if "erro" in dados:
@@ -844,6 +844,9 @@ def exibir_buscar_fii():
         f"status {dados.get('status_geral', 'N/D')} · confiança {dados.get('confianca', 'N/D')} · "
         f"score {score:.0f}/100 · {status_badge(resumo['status'])}"
     )
+    usd = (dados.get("macro") or {}).get("usd_brl")
+    if usd is not None:
+        st.caption(f"Dólar PTAX (Bacen): R$ {usd:.4f}")
     if dados.get("url") or dados.get("url_investidor10"):
         st.caption(dados.get("url") or dados.get("url_investidor10"))
 
@@ -854,13 +857,14 @@ def exibir_buscar_fii():
     with st.expander("Auditoria das fontes"):
         qualidade = pd.DataFrame.from_dict(dados.get("qualidade", {}), orient="index")
         st.dataframe(qualidade, width="stretch")
+        comparativo = dados.get("comparativo_fontes") or []
+        if comparativo:
+            st.caption("Preço, DY e P/VP por fonte (valores originais; N/D não vira 0)")
+            st.dataframe(pd.DataFrame(comparativo), width="stretch", hide_index=True)
         consultadas = dados.get("fontes_consultadas") or []
         if consultadas:
             st.caption("Fontes consultadas nesta atualização")
             st.dataframe(pd.DataFrame(consultadas), width="stretch", hide_index=True)
-        usd = (dados.get("macro") or {}).get("usd_brl")
-        if usd is not None:
-            st.caption(f"Dólar PTAX (Bacen): R$ {usd:.4f}")
 
     if av:
         st.subheader("Critérios do gestor")
