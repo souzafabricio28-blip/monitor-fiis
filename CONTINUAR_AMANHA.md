@@ -68,9 +68,14 @@ Chaves já apareceram neste chat: convém **rotacionar** OpenRouter e o PAT do G
 
 `whatsapp_notifier.py`, `app.py` (Configurações + Vigia), `vigia.py`, `scheduler.py`, `queda_report.py`, `db.py` (apikey WhatsApp pode ficar no banco; token Telegram legado some), `main.py`, `.env.example`, `render.yaml`.
 
+## Hosting (29/08 tarde)
+
+O Render **free dorme**. Preparado para migrar para **Railway** (Hobby, always-on): `Dockerfile` + `railway.toml`. Neon permanece. Falta o Fabricio criar a conta no Railway, conectar o GitHub `monitor-fiis` e colar as variáveis. Sem token da Railway o agente não conclui o deploy.
+
 ## Amanhã (se o Fabricio não pedir outra coisa)
 
 - Conferir se o **Render** já está no código novo e com WhatsApp verde.
-- Colocar `OPENROUTER_API_KEY` no Render se o Vigia no ar ainda for só regras.
+- Criar projeto Railway e apontar `VIGIA_URL` para a URL nova.
+- Colocar `OPENROUTER_API_KEY` no host se o Vigia no ar ainda for só regras.
 - Não recriar Telegram.
 - Não commitar `.env`.

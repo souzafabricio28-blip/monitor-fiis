@@ -56,17 +56,28 @@ python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-## Produção (Render)
+## Produção
 
-Serviço em uso: `https://monitor-fiis-6dk7.onrender.com`
+O plano **free do Render dorme** depois de uns minutos sem acesso (primeiro carregamento ~20 s). Host gratuito não fica acordado 24h. Para o Monitor não hibernar:
 
-Quando pedir para **subir** as alterações, o fluxo é commit de tudo o que está versionado, push no GitHub `master` e deploy no Render (o site no ar). Segredos (`.env`) nunca sobem.
+**Caminho escolhido: [Railway](https://railway.app)** (Hobby, uns US$ 5–10/mês). O banco continua no **Neon**. O Render antigo pode ficar no ar até a URL nova estar ok.
+
+1. Crie a conta em https://railway.app (GitHub).
+2. **New Project → Deploy from GitHub repo** → `souzafabricio28-blip/monitor-fiis` (`master`).
+3. O `Dockerfile` + `railway.toml` já estão no repo (health: `/_stcore/health`).
+4. Em **Variables**, copie as mesmas do Render / `.env` (nunca no Git): `DATABASE_URL`, `AUTH_USER`, `AUTH_PASSWORD`, `WHATSAPP_PHONE`, `WHATSAPP_APIKEY`, `OPENROUTER_API_KEY`, `APP_ENV=production`.
+5. Gere um domínio em **Settings → Networking → Generate domain**.
+6. Ajuste `VIGIA_URL` para essa URL. O `python subir_producao.py` continua subindo o `master` no GitHub; o Railway puxa sozinho se o repo estiver conectado.
+
+Enquanto a conta Railway não existir, o site atual continua: `https://monitor-fiis-6dk7.onrender.com`.
+
+Quando pedir para **subir** as alterações, o fluxo é commit versionado + push no GitHub `master`. Segredos (`.env`) nunca sobem.
 
 ```bash
 python subir_producao.py
 ```
 
-Isso copia o código já commitado para `souzafabricio28-blip/monitor-fiis` (`master`) e dispara o Render.
+Isso copia o código já commitado para `souzafabricio28-blip/monitor-fiis` (`master`). O Railway (se conectado) faz o deploy; o Render só dispara se existir `RENDER_DEPLOY_HOOK`.
 
 No `.env` local (nunca no Git):
 
@@ -77,7 +88,7 @@ No `.env` local (nunca no Git):
 
 No GitHub: **Settings → Secrets → Actions → `RENDER_DEPLOY_HOOK`**. O PAT precisa do escopo **workflow** para o Actions publicar `deploy-render.yml`; sem isso o `subir_producao.py` sobe o app e dispara o hook, mas não altera workflows.
 
-Configure no painel do Render (nunca no Git):
+Configure no painel da Railway (e no Render enquanto ele existir), nunca no Git:
 
 | Variável | Uso |
 |----------|-----|
