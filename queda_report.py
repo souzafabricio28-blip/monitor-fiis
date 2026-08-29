@@ -7,7 +7,6 @@ Não inventa causa. Sem notícia recente o motivo fica N/D.
 from __future__ import annotations
 
 import logging
-import os
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -357,10 +356,10 @@ def relatorio_queda(ticker: str, posicao: Dict, historico=None) -> Dict:
 CHAVE_QUEDAS = "quedas_10_enviadas"
 
 
-def verificar_quedas_carteira(db, posicoes: Iterable[dict], enviar_telegram: bool = False) -> List[dict]:
-    """Gera relatórios só para quem bateu -10%. Telegram opcional, sem token no banco."""
+def verificar_quedas_carteira(db, posicoes: Iterable[dict], enviar_whatsapp: bool = False) -> List[dict]:
+    """Gera relatórios só para quem bateu -10%. WhatsApp opcional, sem apikey no banco."""
     from market_data import buscar_historico
-    from telegram_notifier import TelegramNotifier, telegram_configurado
+    from whatsapp_notifier import WhatsAppNotifier, whatsapp_configurado
 
     relatorios = []
     estado = db.get_config(CHAVE_QUEDAS) or {}
@@ -389,16 +388,12 @@ def verificar_quedas_carteira(db, posicoes: Iterable[dict], enviar_telegram: boo
         chave_dia = datetime.now().strftime("%Y-%m-%d")
         previa = estado.get(ticker) or {}
         ja_enviou = previa.get("dia") == chave_dia
-        if enviar_telegram and not ja_enviou and telegram_configurado(db):
-            notifier = TelegramNotifier(
-                os.environ.get("TELEGRAM_TOKEN", ""),
-                os.environ.get("TELEGRAM_CHAT_ID", ""),
-            )
-            enviado = notifier.enviar_alerta(
+        if enviar_whatsapp and not ja_enviou and whatsapp_configurado(db):
+            enviado = WhatsAppNotifier().enviar_alerta(
                 f"Queda >= 10% — {ticker}",
                 (
                     f"{resumo['abertura']}\n\n"
-                    f"<b>Manchete:</b> {resumo['motivo_curto']}"
+                    f"Manchete: {resumo['motivo_curto']}"
                 ),
                 "aviso",
             )

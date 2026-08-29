@@ -108,11 +108,11 @@ def tarefa_atualizar_cotacoes():
 
 
 def tarefa_verificar_alertas():
-    """Tarefa: Verificar e enviar alertas da watchlist (Telegram via env)."""
+    """Tarefa: Verificar e enviar alertas da watchlist (WhatsApp via env)."""
     print(f"\n🔔 [{datetime.now().strftime('%H:%M')}] Verificando alertas...")
 
     from db import DatabaseManager
-    from telegram_notifier import verificar_alertas_watchlist
+    from whatsapp_notifier import verificar_alertas_watchlist
 
     db = DatabaseManager()
     resultado = verificar_alertas_watchlist(db)
@@ -123,8 +123,8 @@ def tarefa_verificar_alertas():
         f"{len(enviados)} aviso(s) novo(s), "
         f"{len(resultado.get('omitidos_dedup') or [])} já notificado(s)."
     )
-    if not resultado.get("telegram_ok"):
-        print("Telegram inativo (faltam TELEGRAM_TOKEN/TELEGRAM_CHAT_ID ou foi desligado).")
+    if not resultado.get("whatsapp_ok"):
+        print("WhatsApp inativo (falta WHATSAPP_APIKEY ou foi desligado).")
 
     try:
         from portfolio import analisar_carteira
@@ -133,7 +133,7 @@ def tarefa_verificar_alertas():
         analise = analisar_carteira(db)
         if "erro" not in analise:
             rels = verificar_quedas_carteira(
-                db, analise.get("fiis") or [], enviar_telegram=True
+                db, analise.get("fiis") or [], enviar_whatsapp=True
             )
             print(f"Quedas ≥10%: {len(rels)} relatório(s).")
     except Exception as exc:
@@ -162,7 +162,7 @@ def tarefa_gerar_relatorio():
 
 
 def tarefa_vigia():
-    """Tarefa: saúde do site + resumo da carteira (Telegram se configurado)."""
+    """Tarefa: saúde do site + resumo da carteira (WhatsApp se configurado)."""
     print(f"\n🛡️ [{datetime.now().strftime('%H:%M')}] Vigia...")
     from vigia import rodar_vigia
 

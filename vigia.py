@@ -38,7 +38,7 @@ def checar_saude(url: str | None = None, timeout: int = 20) -> dict:
 def analisar_carteira_vigia(db) -> dict:
     from portfolio import analisar_carteira
     from queda_report import gatilhos_de_queda
-    from telegram_notifier import verificar_alertas_watchlist
+    from whatsapp_notifier import verificar_alertas_watchlist
 
     analise = analisar_carteira(db)
     if "erro" in analise:
@@ -165,14 +165,12 @@ def resumir_com_ia(relatorio: str) -> str | None:
         return None
 
 
-def enviar_telegram(texto: str) -> bool:
-    from telegram_notifier import TelegramNotifier, telegram_configurado
+def enviar_whatsapp_vigia(texto: str) -> bool:
+    from whatsapp_notifier import enviar_alerta, whatsapp_configurado
 
-    if not telegram_configurado():
+    if not whatsapp_configurado():
         return False
-    token = os.environ.get("TELEGRAM_TOKEN", "")
-    chat = os.environ.get("TELEGRAM_CHAT_ID", "")
-    return TelegramNotifier(token, chat).enviar_alerta("Vigia do app", texto, tipo="aviso")
+    return enviar_alerta("Vigia do app", texto, tipo="aviso")
 
 
 def rodar_vigia(db=None, enviar: bool = True, url: str | None = None) -> dict:
@@ -193,16 +191,16 @@ def rodar_vigia(db=None, enviar: bool = True, url: str | None = None) -> dict:
     relatorio = montar_relatorio(saude, carteira)
     ia = resumir_com_ia(relatorio)
     texto = f"{ia}\n\n---\n{relatorio}" if ia else relatorio
-    telegram = False
+    whatsapp = False
     if enviar:
-        telegram = enviar_telegram(texto)
+        whatsapp = enviar_whatsapp_vigia(texto)
     return {
         "saude": saude,
         "carteira": carteira,
         "relatorio": relatorio,
         "ia": ia,
         "texto": texto,
-        "telegram": telegram,
+        "whatsapp": whatsapp,
         "usou_ia": bool(ia),
         "coletado_em": _agora(),
     }

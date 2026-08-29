@@ -1,7 +1,7 @@
 import db as db_module
 from db import DatabaseManager
 from portfolio import rentabilidade_total
-from telegram_notifier import (
+from whatsapp_notifier import (
     alvo_de_preco_atingido,
     verificar_alertas_watchlist,
 )
@@ -37,19 +37,16 @@ def test_alvo_de_preco_exige_valores_reais():
 def test_watchlist_alerta_dedup_sem_rede(tmp_path, monkeypatch):
     db = _db_local(tmp_path, monkeypatch)
     db.adicionar_watchlist("MXRF11", 10.0)
-    db.set_config("telegram", {"ativar": True})
-    monkeypatch.setenv("TELEGRAM_TOKEN", "teste-token")
-    monkeypatch.setenv("TELEGRAM_CHAT_ID", "123")
+    db.set_config("whatsapp", {"ativar": True})
+    monkeypatch.setenv("WHATSAPP_APIKEY", "teste-apikey")
 
     disparos = []
 
-    def _fake_alerta(self, titulo, mensagem, tipo="info"):
+    def _fake_alerta(titulo, mensagem, tipo="info"):
         disparos.append((titulo, mensagem, tipo))
         return True
 
-    monkeypatch.setattr(
-        "telegram_notifier.TelegramNotifier.enviar_alerta", _fake_alerta
-    )
+    monkeypatch.setattr("whatsapp_notifier.enviar_alerta", _fake_alerta)
 
     primeiro = verificar_alertas_watchlist(db, precos={"MXRF11": 9.5}, enviar=True)
     assert len(primeiro["disparados"]) == 1

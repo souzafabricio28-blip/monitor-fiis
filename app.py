@@ -41,7 +41,7 @@ from queda_report import (
 from rebalanceamento import registrar_plano_no_banco
 from scoring import calcular_score
 from seed_local import garantir_carteira_local, garantir_plano_local
-from telegram_notifier import verificar_alertas_watchlist
+from whatsapp_notifier import verificar_alertas_watchlist
 from ui_theme import aplicar_plotly, cabecalho_ativo, grafico as _grafico, logo_app, pagina
 
 st.set_page_config(
@@ -360,7 +360,7 @@ def exibir_quedas():
             relatorios = verificar_quedas_carteira(
                 st.session_state.db,
                 analise.get("fiis") or [],
-                enviar_telegram=True,
+                enviar_whatsapp=True,
             )
         st.session_state["_relatorios_queda"] = relatorios
         if not relatorios:
@@ -1016,7 +1016,7 @@ def exibir_watchlist():
     pagina(
         "Watchlist",
         "Fundos e ações em listas separadas. Se o preço atual cair até o alerta, "
-        "o agendador envia Telegram (TELEGRAM_TOKEN e TELEGRAM_CHAT_ID). Nada de token no banco.",
+        "o agendador envia WhatsApp para +55 11 97367-4455. A chave CallMeBot fica no ambiente.",
     )
     with st.form("add_wl", clear_on_submit=True):
         c1, c2 = st.columns(2)
@@ -1116,13 +1116,13 @@ def exibir_watchlist():
         if d == 0:
             st.info("Nenhum ticker da watchlist está no alvo agora.")
         elif n:
-            st.success(f"{d} no alvo · {n} alerta(s) Telegram novo(s).")
+            st.success(f"{d} no alvo · {n} alerta(s) WhatsApp novo(s).")
         else:
             ja = len(resultado.get("omitidos_dedup") or [])
-            if not resultado.get("telegram_ok"):
+            if not resultado.get("whatsapp_ok"):
                 st.warning(
-                    f"{d} no alvo, mas o Telegram está inativo. "
-                    "Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID e ative em Configurações."
+                    f"{d} no alvo, mas o WhatsApp ainda não envia sozinho. "
+                    "Em Configurações: ative o CallMeBot e coloque WHATSAPP_APIKEY no .env."
                 )
             else:
                 st.info(f"{d} no alvo · {ja} já tinham sido notificados neste alvo.")
@@ -1144,7 +1144,7 @@ def exibir_vigia():
 
     st.caption(
         "No Render o processo dorme: o vigia também acorda o app. "
-        "Telegram usa TELEGRAM_TOKEN e TELEGRAM_CHAT_ID."
+        "Alertas vão no WhatsApp +55 11 97367-4455."
     )
     tem_ia = bool(os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     if tem_ia:
@@ -1154,7 +1154,7 @@ def exibir_vigia():
             "Sem GROQ_API_KEY / OPENAI_API_KEY o vigia usa só regras (site no ar, queda 10%, "
             "watchlist, proventos zerados). Para IA de verdade, coloque uma dessas chaves no .env."
         )
-    enviar = st.checkbox("Enviar no Telegram se estiver configurado", value=True)
+    enviar = st.checkbox("Enviar no WhatsApp se a apikey estiver configurada", value=True)
     if st.button("Rodar vigia agora", type="primary", width="stretch"):
         with st.spinner("Checando saúde e carteira..."):
             resultado = rodar_vigia(db=st.session_state.db, enviar=enviar)
@@ -1163,10 +1163,10 @@ def exibir_vigia():
             st.success("Site no ar.")
         else:
             st.error("Site não respondeu no health check.")
-        if resultado.get("telegram"):
-            st.success("Resumo enviado no Telegram.")
+        if resultado.get("whatsapp"):
+            st.success("Resumo enviado no WhatsApp.")
         elif enviar:
-            st.caption("Telegram não enviado (faltam token/chat ou está desligado).")
+            st.caption("WhatsApp não enviado (falta WHATSAPP_APIKEY ou está desligado).")
 
     ultimo = st.session_state.get("_vigia_ultimo")
     if not ultimo:
@@ -1248,16 +1248,15 @@ def exibir_configuracoes():
     pagina("Configurações", "Segredos ficam só no ambiente. Nada de senha ou token no Git.")
     st.info(
         "Segredos (senha do app, DATABASE_URL, tokens) ficam só no Render/Neon — "
-        "nunca no Git. Preferir TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no ambiente. "
-        "Com Telegram ativo, o agendador avisa quando um ticker da watchlist atinge o preço-alvo."
+        "nunca no Git. Alertas vão no WhatsApp +55 11 97367-4455 "
+        "(WHATSAPP_APIKEY no ambiente). O agendador avisa watchlist e o vigia."
     )
     db = st.session_state.db
     cfg_email = db.get_config("email", {"ativar": False, "destino": ""})
-    cfg_tg = db.get_config("telegram", {"ativar": False}) or {"ativar": False}
+    cfg_wa = db.get_config("whatsapp", {"ativar": True}) or {"ativar": True}
     cfg_agenda = db.get_config("agendamento", {"horario": "18:00"})
 
-    token_env = bool(os.environ.get("TELEGRAM_TOKEN"))
-    chat_env = bool(os.environ.get("TELEGRAM_CHAT_ID"))
+    wa_key = bool(os.environ.get("WHATSAPP_APIKEY") or os.environ.get("CALLMEBOT_APIKEY"))
 
     st.subheader("Alertas por Email")
     with st.form("config_email"):
@@ -1270,21 +1269,24 @@ def exibir_configuracoes():
             )
             st.success("Email salvo no banco.")
 
-    st.subheader("Telegram")
-    if token_env and chat_env:
-        st.success("Credenciais Telegram detectadas nas variáveis de ambiente (recomendado).")
+    st.subheader("WhatsApp")
+    st.caption("Destino fixo: +55 11 97367-4455. O Telegram foi removido.")
+    if wa_key:
+        st.success("WHATSAPP_APIKEY detectada no ambiente. Alertas saem para esse número.")
     else:
         st.warning(
-            "Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no ambiente para ativar alertas."
+            "O WhatsApp não deixa o servidor mandar mensagem só com o número. "
+            "Uma vez: no WhatsApp, adicione o contato CallMeBot (+34 644 66 12 43), "
+            "envie “I allow callmebot to send me messages”, copie a apikey e coloque "
+            "WHATSAPP_APIKEY no .env / Render."
         )
-    with st.form("config_telegram"):
-        ativar_tg = st.checkbox("Ativar Telegram", value=bool(cfg_tg.get("ativar")))
-        if st.form_submit_button("Salvar Telegram"):
-            if ativar_tg and not (token_env and chat_env):
-                st.error("Credenciais ausentes no ambiente; Telegram não foi ativado.")
-            else:
-                db.set_config("telegram", {"ativar": ativar_tg})
-                st.success("Preferência Telegram salva; nenhum segredo foi gravado no banco.")
+    with st.form("config_whatsapp"):
+        ativar_wa = st.checkbox("Ativar WhatsApp", value=bool(cfg_wa.get("ativar", True)))
+        if st.form_submit_button("Salvar WhatsApp"):
+            if ativar_wa and not wa_key:
+                st.error("Falta WHATSAPP_APIKEY no ambiente; o envio ainda não liga.")
+            db.set_config("whatsapp", {"ativar": ativar_wa})
+            st.success("Preferência WhatsApp salva. A apikey não entra no banco.")
 
     st.subheader("Agendamento (referência)")
     with st.form("config_agendamento"):
@@ -1300,9 +1302,9 @@ def exibir_configuracoes():
                 "postgres": USE_POSTGRES,
                 "login_ativo": esta_autenticado(),
                 "email_destino": (db.get_config("email") or {}).get("destino", ""),
-                "telegram_ativado": bool((db.get_config("telegram") or {}).get("ativar"))
-                or token_env,
-                "telegram_via_env": token_env and chat_env,
+                "whatsapp_ativado": bool((db.get_config("whatsapp") or {}).get("ativar", True)),
+                "whatsapp_apikey_no_env": wa_key,
+                "whatsapp_destino": "+55 11 97367-4455",
                 "agendamento": db.get_config("agendamento"),
             },
             indent=2,

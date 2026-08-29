@@ -26,8 +26,8 @@ e sem Neon, o dashboard abre em modo local.
 
 No dashboard dá para baixar CSV, Excel e PDF da carteira. A rentabilidade total
 soma variação de preço e proventos registados (cotação ausente permanece N/D).
-A aba Carteira mostra o histórico de transações. A watchlist dispara Telegram
-quando o preço atinge o alvo (`TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID`). A
+A aba Carteira mostra o histórico de transações. A watchlist dispara WhatsApp
+no +55 11 97367-4455 quando o preço atinge o alvo (`WHATSAPP_APIKEY`). A
 preferência Mostrar/Ocultar valores fica gravada no banco. A aba **Quedas 10%**
 gera PDF com manchetes quando um ativo cai 10% ou mais; sem notícia o motivo
 é N/D.
@@ -42,8 +42,10 @@ Não dá para “instalar o ChatGPT” no Render sem uma chave e um processo aco
 
 1. No dashboard: menu **Vigia** → **Rodar vigia agora** (saúde do site + carteira).
 2. Na máquina ou no cron: `python vigia.py` (e `python scheduler.py` às 18:45).
-3. Com `TELEGRAM_TOKEN` e `TELEGRAM_CHAT_ID`, o relatório vai no Telegram.
+3. Com `WHATSAPP_APIKEY`, o relatório vai no WhatsApp (+55 11 97367-4455).
 4. Com `GROQ_API_KEY` (grátis) ou `OPENAI_API_KEY`, um modelo resume o relatório. Sem chave, só regras (site fora, queda 10%, watchlist, proventos zerados).
+
+Ative o CallMeBot **uma vez**: no WhatsApp, adicione o contato **+34 644 66 12 43**, envie `I allow callmebot to send me messages`, copie a apikey e coloque em `WHATSAPP_APIKEY` no `.env` e no Render. Sem essa chave o servidor não consegue mandar mensagem.
 
 Outro caminho: no Cursor, crie uma **Automação agendada** pedindo para checar o site, o health e te avisar. Isso usa o agente da conversa, não um modelo dentro do Render.
 
@@ -82,7 +84,8 @@ Configure no painel do Render (nunca no Git):
 | `DATABASE_URL` | Neon (`sslmode=require`) |
 | `AUTH_USER` | usuário personalizado (não `admin`) |
 | `AUTH_PASSWORD` | senha com 12+ caracteres |
-| `TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID` | opcional |
+| `WHATSAPP_PHONE` | `5511973674455` (padrão) |
+| `WHATSAPP_APIKEY` | apikey do CallMeBot (obrigatória para enviar) |
 
 O tema Status Invest (carvão + laranja) também pode ser reforçado com
 `STREAMLIT_THEME_*` (já listadas em `render.yaml`).

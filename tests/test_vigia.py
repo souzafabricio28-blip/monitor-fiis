@@ -41,3 +41,17 @@ def test_sem_chave_ia_nao_chama_rede(monkeypatch):
     monkeypatch.setattr("vigia.requests.post", lambda *a, **k: chamadas.append(1))
     assert resumir_com_ia("relatorio") is None
     assert chamadas == []
+
+
+def test_enviar_whatsapp_sem_chave_nao_dispara(monkeypatch):
+    monkeypatch.delenv("WHATSAPP_APIKEY", raising=False)
+    monkeypatch.delenv("CALLMEBOT_APIKEY", raising=False)
+    from vigia import enviar_whatsapp_vigia
+
+    chamadas = []
+    monkeypatch.setattr(
+        "whatsapp_notifier.enviar_alerta",
+        lambda *a, **k: chamadas.append(1) or True,
+    )
+    assert enviar_whatsapp_vigia("resumo") is False
+    assert chamadas == []

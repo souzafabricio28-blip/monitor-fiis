@@ -42,7 +42,7 @@ services:
         sync: false
       - key: RECOVERY_EMAIL
         sync: false
-      - key: TELEGRAM_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
+      - key: WHATSAPP_PHONE
+        value: "5511973674455"
+      - key: WHATSAPP_APIKEY
         sync: false

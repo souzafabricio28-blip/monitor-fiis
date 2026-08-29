@@ -326,34 +326,38 @@ class DatabaseManager:
             self._migrate_sqlite_if_needed()
 
     def _sanitizar_configuracoes(self):
-        """Remove segredos legados que possam ter sido gravados no banco."""
+        """Remove segredos (token Telegram legado, apikey WhatsApp) do banco."""
         conn = self._get_conn()
         cur = conn.cursor()
-        cur.execute(
-            f"SELECT valor FROM configuracoes WHERE chave = {_ph()}",
-            ("telegram",),
-        )
-        row = cur.fetchone()
-        if row:
+        for chave, padrao_ativar in (("telegram", False), ("whatsapp", True)):
+            cur.execute(
+                f"SELECT valor FROM configuracoes WHERE chave = {_ph()}",
+                (chave,),
+            )
+            row = cur.fetchone()
+            if not row:
+                continue
             try:
                 atual = json.loads(row[0])
             except (TypeError, json.JSONDecodeError):
                 atual = {}
+            if not isinstance(atual, dict):
+                atual = {}
             seguro = json.dumps(
-                {"ativar": bool(atual.get("ativar", False))},
+                {"ativar": bool(atual.get("ativar", padrao_ativar))},
                 ensure_ascii=False,
             )
             if self.use_pg:
                 cur.execute(
                     "UPDATE configuracoes SET valor = %s WHERE chave = %s",
-                    (seguro, "telegram"),
+                    (seguro, chave),
                 )
             else:
                 cur.execute(
                     "UPDATE configuracoes SET valor = ? WHERE chave = ?",
-                    (seguro, "telegram"),
+                    (seguro, chave),
                 )
-            conn.commit()
+        conn.commit()
         conn.close()
 
     def _importar_saldos_iniciais(self):

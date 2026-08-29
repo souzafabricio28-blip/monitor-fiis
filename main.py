@@ -5,7 +5,7 @@ Sistema completo de monitoramento de fundos imobiliários
 Funcionalidades:
 - Dashboard web com Streamlit
 - Web Scraping do Investidor10
-- Alertas por Telegram
+- Alertas por WhatsApp
 - Relatórios PDF
 - Exportação para Excel
 - Agendador automático
@@ -72,7 +72,7 @@ def menu_principal():
     print("4. ⚖️  Comparar FIIs")
     print("5. 📄 Gerar Relatório PDF")
     print("6. 📊 Exportar para Excel")
-    print("7. 🔔 Configurar Telegram")
+    print("7. 🔔 Testar WhatsApp")
     print("8. ⏰ Iniciar Agendador")
     print("9. 📦 Instalar/Atualizar Dependências")
     print("0. 🚪 Sair")
@@ -191,31 +191,24 @@ def opcao_excel():
     print(f"✅ Arquivo salvo: {arquivo}")
 
 
-def opcao_telegram():
-    """Testa notificações Telegram usando somente o ambiente."""
-    print("\n🔔 Testar Telegram")
+def opcao_whatsapp():
+    """Testa notificações WhatsApp usando somente o ambiente."""
+    print("\n🔔 Testar WhatsApp (+55 11 97367-4455)")
 
-    import os
-    from telegram_notifier import TelegramNotifier
+    from whatsapp_notifier import WhatsAppNotifier, telefone_destino, whatsapp_configurado
 
-    token = os.environ.get("TELEGRAM_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-    if token and chat_id:
-        notifier = TelegramNotifier(token, chat_id)
-        
+    if whatsapp_configurado():
+        notifier = WhatsAppNotifier()
         if notifier.testar_conexao():
-            print("✅ Conexão com Telegram estabelecida!")
-            
-            # Testar envio
-            teste = input("Deseja enviar mensagem de teste? (s/n): ").lower()
+            print(f"✅ WhatsApp ok para +{telefone_destino()}")
+            teste = input("Deseja enviar outra mensagem de teste? (s/n): ").lower()
             if teste == "s":
-                notifier.enviar_mensagem("✅ Telegram configurado com sucesso!")
+                notifier.enviar_mensagem("✅ WhatsApp configurado com sucesso!")
                 print("✅ Mensagem de teste enviada!")
         else:
-            print("❌ Erro ao conectar com Telegram")
+            print("❌ Erro ao enviar no WhatsApp (confira WHATSAPP_APIKEY).")
     else:
-        print("❌ Defina TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no ambiente.")
+        print("❌ Defina WHATSAPP_APIKEY no ambiente. Destino: +55 11 97367-4455.")
 
 
 def opcao_agendador():
@@ -264,7 +257,7 @@ def main():
         elif opcao == "6":
             opcao_excel()
         elif opcao == "7":
-            opcao_telegram()
+            opcao_whatsapp()
         elif opcao == "8":
             opcao_agendador()
         elif opcao == "9":

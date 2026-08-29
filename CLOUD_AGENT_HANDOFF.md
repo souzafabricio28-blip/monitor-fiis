@@ -15,7 +15,7 @@ Tornar o Monitor de FIIs **seguro, confiável e auditável**, priorizando FIIs e
 - XSRF/CORS reativados em `.streamlit/config.toml`
 - Sessão expira em 8h (`auth.py`)
 - Produção exige `AUTH_USER` personalizado + senha ≥12 chars
-- Telegram só via ambiente (`TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID`); token removido do banco
+- Alertas no WhatsApp +55 11 97367-4455 via `WHATSAPP_APIKEY` (CallMeBot); Telegram removido
 - Backup SQLite: `.backups/fii_data_20260828_041113.db`
 
 ### 2. Dados confiáveis
@@ -98,7 +98,7 @@ Fluxo: executar na corretora → confirmar no app (Registrar VENDA/COMPRA execut
 ## Pendências antes de deploy
 
 1. Rotacionar manualmente senha Neon e token Render
-2. Configurar no Render: `AUTH_USER`, `AUTH_PASSWORD`, `DATABASE_URL`, Telegram
+2. Configurar no Render: `AUTH_USER`, `AUTH_PASSWORD`, `DATABASE_URL`, `WHATSAPP_APIKEY`
 3. Usuário aprovar commit/push/deploy (nada foi publicado ainda)
 
 ## Arquivos principais
