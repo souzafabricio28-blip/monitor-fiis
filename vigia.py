@@ -111,15 +111,36 @@ def montar_relatorio(saude: dict, carteira: dict) -> str:
     return "\n".join(linhas)
 
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODELO_OPENROUTER = "openai/gpt-4o-mini"
+
+
+def _parece_openrouter(chave: str) -> bool:
+    return chave.startswith("sk-or-")
+
+
 def _chave_llm() -> tuple[str, str, str] | None:
+    openrouter = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    openai = (os.environ.get("OPENAI_API_KEY") or "").strip()
     groq = (os.environ.get("GROQ_API_KEY") or "").strip()
+    if openrouter or _parece_openrouter(openai):
+        token = openrouter or openai
+        modelo = (
+            os.environ.get("OPENROUTER_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or MODELO_OPENROUTER
+        ).strip()
+        return token, OPENROUTER_URL, modelo
     if groq:
         return groq, "https://api.groq.com/openai/v1/chat/completions", "llama-3.1-8b-instant"
-    openai = (os.environ.get("OPENAI_API_KEY") or "").strip()
     if openai:
         modelo = (os.environ.get("OPENAI_MODEL") or "gpt-4o-mini").strip()
         return openai, "https://api.openai.com/v1/chat/completions", modelo
     return None
+
+
+def tem_chave_ia() -> bool:
+    return _chave_llm() is not None
 
 
 def resumir_com_ia(relatorio: str) -> str | None:
@@ -142,13 +163,17 @@ def resumir_com_ia(relatorio: str) -> str | None:
             {"role": "user", "content": relatorio},
         ],
     }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    if url == OPENROUTER_URL:
+        headers["HTTP-Referer"] = (os.environ.get("VIGIA_URL") or SITE_PADRAO).rstrip("/")
+        headers["X-Title"] = "Monitor de FIIs"
     try:
         resp = requests.post(
             url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json=corpo,
             timeout=40,
         )

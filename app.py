@@ -1137,22 +1137,23 @@ def exibir_vigia():
     pagina(
         "Vigia",
         "Pinga a saúde do site, lê a carteira (quedas, watchlist, proventos) e "
-        "opcionalmente pede um resumo a um modelo se GROQ_API_KEY ou OPENAI_API_KEY "
-        "estiver no ambiente. Sem chave, o relatório é só regras — não inventa texto.",
+        "opcionalmente pede um resumo a um modelo se OPENROUTER_API_KEY, "
+        "GROQ_API_KEY ou OPENAI_API_KEY estiver no ambiente. Sem chave, o relatório "
+        "é só regras — não inventa texto.",
     )
-    from vigia import SITE_PADRAO, rodar_vigia
+    from vigia import SITE_PADRAO, rodar_vigia, tem_chave_ia
 
     st.caption(
         "No Render o processo dorme: o vigia também acorda o app. "
         "Alertas vão no WhatsApp +55 11 97367-4455."
     )
-    tem_ia = bool(os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY"))
-    if tem_ia:
+    if tem_chave_ia():
         st.success("Chave de modelo detectada — o resumo em linguagem natural será pedido à API.")
     else:
         st.info(
-            "Sem GROQ_API_KEY / OPENAI_API_KEY o vigia usa só regras (site no ar, queda 10%, "
-            "watchlist, proventos zerados). Para IA de verdade, coloque uma dessas chaves no .env."
+            "Sem OPENROUTER_API_KEY / GROQ_API_KEY / OPENAI_API_KEY o vigia usa só regras "
+            "(site no ar, queda 10%, watchlist, proventos zerados). "
+            "Para IA de verdade, coloque uma dessas chaves no .env."
         )
     enviar = st.checkbox("Enviar no WhatsApp se a apikey estiver configurada", value=True)
     if st.button("Rodar vigia agora", type="primary", width="stretch"):

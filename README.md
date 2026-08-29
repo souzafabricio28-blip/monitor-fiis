@@ -43,7 +43,7 @@ Não dá para “instalar o ChatGPT” no Render sem uma chave e um processo aco
 1. No dashboard: menu **Vigia** → **Rodar vigia agora** (saúde do site + carteira).
 2. Na máquina ou no cron: `python vigia.py` (e `python scheduler.py` às 18:45).
 3. Com `WHATSAPP_APIKEY`, o relatório vai no WhatsApp (+55 11 97367-4455).
-4. Com `GROQ_API_KEY` (grátis) ou `OPENAI_API_KEY`, um modelo resume o relatório. Sem chave, só regras (site fora, queda 10%, watchlist, proventos zerados).
+4. Com `OPENROUTER_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY`, um modelo resume o relatório. Sem chave, só regras (site fora, queda 10%, watchlist, proventos zerados). Chave `sk-or-…` vai para o OpenRouter, não para a API da OpenAI.
 
 Ative o CallMeBot **uma vez**: no WhatsApp, adicione o contato **+34 644 66 12 43**, envie `I allow callmebot to send me messages`, copie a apikey e coloque em `WHATSAPP_APIKEY` no `.env` e no Render. Sem essa chave o servidor não consegue mandar mensagem.
 
@@ -86,6 +86,7 @@ Configure no painel do Render (nunca no Git):
 | `AUTH_PASSWORD` | senha com 12+ caracteres |
 | `WHATSAPP_PHONE` | `5511973674455` (padrão) |
 | `WHATSAPP_APIKEY` | apikey do CallMeBot (obrigatória para enviar) |
+| `OPENROUTER_API_KEY` | opcional — resumo do Vigia via OpenRouter |
 
 O tema Status Invest (carvão + laranja) também pode ser reforçado com
 `STREAMLIT_THEME_*` (já listadas em `render.yaml`).

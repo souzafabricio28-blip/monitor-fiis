@@ -37,10 +37,60 @@ def test_checar_saude_ok(monkeypatch):
 def test_sem_chave_ia_nao_chama_rede(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     chamadas = []
     monkeypatch.setattr("vigia.requests.post", lambda *a, **k: chamadas.append(1))
     assert resumir_com_ia("relatorio") is None
     assert chamadas == []
+
+
+def test_openrouter_usa_endpoint_certo(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-teste")
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "resumo ok"}}]}
+
+    visto = {}
+
+    def _post(url, headers=None, json=None, timeout=40):
+        visto["url"] = url
+        visto["modelo"] = (json or {}).get("model")
+        visto["auth"] = (headers or {}).get("Authorization", "")[:12]
+        return _Resp()
+
+    monkeypatch.setattr("vigia.requests.post", _post)
+    assert resumir_com_ia("relatorio") == "resumo ok"
+    assert visto["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert visto["modelo"] == "openai/gpt-4o-mini"
+    assert visto["auth"] == "Bearer sk-or"
+
+
+def test_chave_openai_com_prefixo_openrouter(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-or-v1-colada-no-openai")
+    visto = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    def _post(url, headers=None, json=None, timeout=40):
+        visto["url"] = url
+        return _Resp()
+
+    monkeypatch.setattr("vigia.requests.post", _post)
+    assert resumir_com_ia("x") == "ok"
+    assert visto["url"].startswith("https://openrouter.ai/")
 
 
 def test_enviar_whatsapp_sem_chave_nao_dispara(monkeypatch):
