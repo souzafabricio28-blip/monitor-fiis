@@ -1,8 +1,6 @@
-# Handoff para Cloud Agent — Monitor de FIIs (INVESTIMENTOS)
+# Handoff para Cloud Agent — Monitor de FIIs
 
-Data: 2026-08-28  
-Workspace: `C:\Users\souza\Desktop\INVESTIMENTOS`  
-Transcript local: `16677dc6-254b-4664-ac2a-871980e2af93.jsonl`
+**Retomar aqui:** [`CONTINUAR_AMANHA.md`](CONTINUAR_AMANHA.md) (conversa de 29/08/2026: WhatsApp no 11 97367-4455, Telegram removido, OpenRouter no Vigia).
 
 ## Objetivo do projeto
 
@@ -95,11 +93,11 @@ Total investido ~R$ 1.356. Diversificação FII: **não passou** (só Papel + Ga
 
 Fluxo: executar na corretora → confirmar no app (Registrar VENDA/COMPRA executada).
 
-## Pendências antes de deploy
+## Pendências
 
-1. Rotacionar manualmente senha Neon e token Render
-2. Configurar no Render: `AUTH_USER`, `AUTH_PASSWORD`, `DATABASE_URL`, `WHATSAPP_APIKEY`
-3. Usuário aprovar commit/push/deploy (nada foi publicado ainda)
+1. Render: Manual Deploy se o site estiver atrasado; `WHATSAPP_APIKEY` e `OPENROUTER_API_KEY` no Environment
+2. Rotacionar senha Neon / tokens se tiverem sido expostos no chat
+3. Seguir [`CONTINUAR_AMANHA.md`](CONTINUAR_AMANHA.md)
 
 ## Arquivos principais
 
@@ -120,4 +118,4 @@ Fluxo: executar na corretora → confirmar no app (Registrar VENDA/COMPRA execut
 
 ## Instrução para o Cloud Agent
 
-Continue a partir deste estado. **Não faça deploy nem commit sem aprovação explícita do usuário.** Preserve carteira/watchlist existentes. Use a aba Rebalanceamento para movimentações pendentes.
+Continue a partir de [`CONTINUAR_AMANHA.md`](CONTINUAR_AMANHA.md). Preserve carteira/watchlist. Não recolocar Telegram. Não commitar `.env`.
