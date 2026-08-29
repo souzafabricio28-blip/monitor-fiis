@@ -18,6 +18,7 @@ Também nesta sequência:
 
 - Chave **OpenRouter** ligada no Vigia (`OPENROUTER_API_KEY` no `.env`). Prefixo `sk-or-` vai para `https://openrouter.ai/api/v1`, não para a OpenAI.
 - Visual Status Invest (carvão + laranja). Indicadores Investidor10. Fundos e ações separados.
+- **Fontes de dados (29/08):** Yahoo + Investidor10 + Fundamentus + Funds Explorer + Brapi + Mais Retorno + Google Finance + PTAX (Bacen). Status Invest/Clube FII bloqueiam scrape. Brapi em FII pede `BRAPI_TOKEN`.
 
 ## O que o app avisa no WhatsApp
 

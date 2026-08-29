@@ -854,6 +854,13 @@ def exibir_buscar_fii():
     with st.expander("Auditoria das fontes"):
         qualidade = pd.DataFrame.from_dict(dados.get("qualidade", {}), orient="index")
         st.dataframe(qualidade, width="stretch")
+        consultadas = dados.get("fontes_consultadas") or []
+        if consultadas:
+            st.caption("Fontes consultadas nesta atualização")
+            st.dataframe(pd.DataFrame(consultadas), width="stretch", hide_index=True)
+        usd = (dados.get("macro") or {}).get("usd_brl")
+        if usd is not None:
+            st.caption(f"Dólar PTAX (Bacen): R$ {usd:.4f}")
 
     if av:
         st.subheader("Critérios do gestor")

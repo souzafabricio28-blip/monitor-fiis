@@ -16,7 +16,10 @@ Tema escuro no estilo Status Invest em `.streamlit/config.toml`: fundo `#1A1A1A`
 destaque laranja `#F39200`, texto `#F5F5F5` e menu lateral carvão (nunca branco
 no branco). O dashboard carrega cotações em lote no Yahoo e reutiliza cache; scrape do
 Investidor10 (vacância, liquidez, cotistas, VP/cota, taxa de adm., variação 12M)
-roda em **Atualizar critérios** ou na página **Indicadores**.
+roda em **Atualizar critérios** ou na página **Indicadores**, junto com Fundamentus,
+Funds Explorer, Brapi, Mais Retorno, Google Finance e PTAX do Banco Central.
+Ausente permanece N/D; as fontes não se sobrescrevem — divergência vai para a
+auditoria.
 
 Fundos e ações ficam em abas no **Resumo**: mix, treemap de
 alocação, ranking vs compra, peso de cada posição e diversificação por setor.

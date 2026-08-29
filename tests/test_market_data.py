@@ -53,8 +53,12 @@ def test_sincroniza_proventos_no_sqlite(tmp_path, monkeypatch):
 
 def test_dados_sem_fundamentos_nao_raspa(monkeypatch):
     chamadas = []
+    extras = []
     monkeypatch.setattr(
         market_data._api, "buscar_ativo", lambda ticker: chamadas.append(ticker) or {"erro": "x"}
+    )
+    monkeypatch.setattr(
+        market_data, "consultar_fontes_extras", lambda ticker: extras.append(ticker) or []
     )
     monkeypatch.setattr(
         market_data,
@@ -76,6 +80,7 @@ def test_dados_sem_fundamentos_nao_raspa(monkeypatch):
         "MXRF11", incluir_fundamentos=False, usar_cache=False
     )
     assert chamadas == []
+    assert extras == []
     assert dados["preco_atual"] == 9.5
     assert dados.get("vacancia") is None
     assert dados["dy"] == 12.0

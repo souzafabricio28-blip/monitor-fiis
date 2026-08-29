@@ -1,5 +1,6 @@
 """
-Dados de mercado via Yahoo Finance + Investidor10, com DY timezone-safe e cache.
+Dados de mercado via Yahoo Finance, Investidor10 e fontes extras
+(Fundamentus, Funds Explorer, Brapi, Mais Retorno, Google Finance, PTAX).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import pandas as pd
 import yfinance as yf
 
 from investidor10 import CAMPOS_I10, Investidor10API
+from fontes_extras import aplicar_fontes_extras, consultar_fontes_extras
 
 _api = Investidor10API()
 _mem_cache: Dict[str, tuple] = {}
@@ -432,6 +434,16 @@ def buscar_dados_completos(
                     _registrar_meta(
                         dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
                     )
+
+        extras = consultar_fontes_extras(ticker)
+        usadas = aplicar_fontes_extras(
+            dados,
+            extras,
+            registrar=_registrar_meta,
+            divergencia_pct=_divergencia_percentual,
+            limite=LIMITE_DIVERGENCIA,
+        )
+        fontes.extend(usadas)
 
     dados["fonte"] = " + ".join(dict.fromkeys(fontes)) or "fontes indisponíveis"
     campos_ok = ("preco_atual", "dy", "p_vp", "patrimonio", "vacancia") if incluir_fundamentos else ("preco_atual", "dy")
