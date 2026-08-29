@@ -517,19 +517,45 @@ def _buscar_base(ticker, tipo, permitir_scrape=False):
 
         from market_data import buscar_dados_completos
 
-        extra = buscar_dados_completos(ticker)
-        for campo in ("preco", "preco_atual", "dy", "dy_mensal", "p_vp", "nome"):
-            if not dados.get(campo) and extra.get(campo) not in (None, ""):
+        extra = buscar_dados_completos(ticker, incluir_fundamentos=True)
+        campos_i10 = (
+            "preco",
+            "preco_atual",
+            "dy",
+            "dy_mensal",
+            "p_vp",
+            "nome",
+            "vacancia",
+            "setor",
+            "tipo",
+            "liquidez_diaria",
+            "variacao_dia",
+            "variacao_12m",
+            "cotistas",
+            "cotas_emitidas",
+            "vp_cota",
+            "taxa_administracao",
+            "gestao",
+            "ultimo_rendimento",
+            "patrimonio",
+            "p_l",
+            "razao_social",
+            "cnpj",
+            "mandato",
+        )
+        for campo in campos_i10:
+            if dados.get(campo) in (None, "") and extra.get(campo) not in (None, ""):
                 dados[campo] = extra.get(campo)
         if extra.get("setor"):
             dados["setor_inv"] = extra.get("setor")
-        if dados.get("vacancia") is None and extra.get("vacancia") is not None:
-            dados["vacancia"] = extra.get("vacancia")
         if dados.get("vacancia") is None:
             inv = _buscar_investidor10(ticker)
             if inv and inv.get("vacancia") is not None:
                 dados["vacancia"] = inv["vacancia"]
                 dados["setor_inv"] = inv.get("setor") or dados.get("setor_inv")
+                for campo in campos_i10:
+                    if dados.get(campo) in (None, "") and inv.get(campo) not in (None, ""):
+                        dados[campo] = inv[campo]
         return _aplicar_catalogo(ticker, dados)
 
     dados = {"ticker": ticker, "tipo": tipo}
@@ -558,29 +584,29 @@ def _buscar_base(ticker, tipo, permitir_scrape=False):
         dados["nome"] = ticker
         dados["setor"] = ""
 
+    if permitir_scrape:
+        inv = _buscar_investidor10(ticker)
+        if inv:
+            if inv.get("p_l") is not None:
+                dados["p_l"] = inv["p_l"]
+            for campo in ("liquidez_diaria", "variacao_12m", "variacao_dia"):
+                if inv.get(campo) is not None:
+                    dados[campo] = inv[campo]
+            if not dados.get("dy") and inv.get("dy") is not None:
+                dados["dy"] = inv["dy"]
+            if dados.get("p_vp") is None and inv.get("p_vp") is not None:
+                dados["p_vp"] = inv["p_vp"]
     return dados
 
 
 def _buscar_investidor10(ticker):
-    """Busca vacância e segmento no Investidor10."""
-    url = f"https://investidor10.com.br/fiis/{ticker.lower()}/"
+    """Vacância, segmento e demais indicadores públicos do Investidor10."""
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        if resp.status_code != 200:
+        from investidor10 import Investidor10API
+
+        dados = Investidor10API().buscar_ativo(ticker)
+        if dados.get("erro"):
             return None
-        texto = resp.text
-        dados = {}
-        vac = re.search(r"vac[^0-9]{0,20}([\d,.]+)\s*%", texto, re.IGNORECASE)
-        if vac:
-            dados["vacancia"] = float(vac.group(1).replace(".", "").replace(",", "."))
-        seg = re.search(r"do segmento\s+(Híbrido|Papel|Tijolo|Logístico|FOF)", texto, re.IGNORECASE)
-        if seg:
-            dados["setor"] = seg.group(1)
-        h1 = re.search(r"<h1[^>]*>(.*?)</h1>", texto, re.IGNORECASE)
-        if h1:
-            dados["nome"] = re.sub(r"<[^>]+>", "", h1.group(1)).strip()
-        else:
-            dados["nome"] = None
         return dados
     except Exception:
         return None

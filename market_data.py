@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Optional
 import pandas as pd
 import yfinance as yf
 
-from investidor10 import Investidor10API
+from investidor10 import CAMPOS_I10, Investidor10API
 
 _api = Investidor10API()
 _mem_cache: Dict[str, tuple] = {}
@@ -386,15 +386,23 @@ def buscar_dados_completos(
         except Exception as exc:
             logger.warning("Falha nos metadados Yahoo de %s: %s", ticker, exc)
 
-        inv = _api.buscar_fii(ticker)
+        inv = _api.buscar_ativo(ticker)
         if "erro" not in inv:
             fontes.append("Investidor10")
             dados["nome"] = inv.get("nome") or dados["nome"]
-            for campo in ("p_vp", "patrimonio", "vacancia", "setor"):
+            dados["url_investidor10"] = inv.get("url")
+            for campo in CAMPOS_I10:
                 valor = inv.get(campo)
-                if valor is not None:
+                if valor is not None and valor != "":
                     _registrar_meta(dados, campo, valor, "Investidor10", confianca="media")
-                elif dados.get(campo) is None:
+                elif dados.get(campo) is None and campo in (
+                    "p_vp",
+                    "patrimonio",
+                    "vacancia",
+                    "liquidez_diaria",
+                    "cotistas",
+                    "ultimo_rendimento",
+                ):
                     _registrar_meta(
                         dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
                     )

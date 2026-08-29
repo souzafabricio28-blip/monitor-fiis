@@ -18,6 +18,8 @@ from portfolio import rentabilidade_total
 from ui_theme import (
     ACOES_COR,
     FUNDOS_COR,
+    GRADE,
+    MUTED,
     NEGATIVO,
     POSITIVO,
     card_grafico,
@@ -178,7 +180,7 @@ def _fig_mix(totais_f: dict, totais_a: dict):
                 text="alocação",
                 x=0.5,
                 y=0.5,
-                font=dict(size=12, color="#9AA3B2"),
+                font=dict(size=12, color=MUTED),
                 showarrow=False,
             )
         ],
@@ -196,7 +198,7 @@ def _fig_treemap(df: pd.DataFrame, titulo: str):
     if color_col == "lucro_pct":
         kwargs.update(
             color="lucro_pct",
-            color_continuous_scale=[NEGATIVO, "#1F2937", POSITIVO],
+            color_continuous_scale=[NEGATIVO, "#EDF1F3", POSITIVO],
             color_continuous_midpoint=0,
         )
     else:
@@ -251,7 +253,7 @@ def _fig_projecao(totais: dict):
             y=[totais["investido"] + totais["projecao"] * m for m in meses],
             name="Patrimônio + renda",
             mode="lines+markers",
-            line=dict(color="#7DD3FC", width=2.4),
+            line=dict(color=ACOES_COR, width=2.4),
         )
     )
     fig.update_layout(title="Projeção 12 meses", xaxis_title="Mês", yaxis_title="R$")
@@ -269,7 +271,7 @@ def _fig_waterfall(totais: dict):
                 totais["proventos"] or 0,
                 0,
             ],
-            connector=dict(line=dict(color="#374151")),
+            connector=dict(line=dict(color=GRADE)),
             increasing=dict(marker=dict(color=POSITIVO)),
             decreasing=dict(marker=dict(color=NEGATIVO)),
             totals=dict(marker=dict(color=FUNDOS_COR)),
@@ -315,6 +317,16 @@ def _tabela_grupo(itens: list, rotulo_ticker: str, sufixo: str, mostrar_valores:
     if mostrar_valores:
         visiveis[3:3] = ["preco_compra", "preco_atual", "valor"]
         visiveis.extend(["lucro", "proventos", "lucro_total"])
+    extras_i10 = [
+        "p_vp",
+        "vacancia",
+        "liquidez_diaria",
+        "cotistas",
+        "ultimo_rendimento",
+        "variacao_12m",
+        "p_l",
+    ]
+    visiveis.extend(c for c in extras_i10 if c in exibicao.columns and exibicao[c].notna().any())
     visiveis = [c for c in visiveis if c in exibicao.columns]
     tabela = exibicao[visiveis].rename(
         columns={
@@ -332,6 +344,13 @@ def _tabela_grupo(itens: list, rotulo_ticker: str, sufixo: str, mostrar_valores:
             "proventos": "Proventos 12m",
             "lucro_total": "Rentab. total R$",
             "lucro_total_pct": "Rentab. total %",
+            "p_vp": "P/VP",
+            "vacancia": "Vacância %",
+            "liquidez_diaria": "Liquidez 30d",
+            "cotistas": "Cotistas",
+            "ultimo_rendimento": "Último rend.",
+            "variacao_12m": "Var. 12M %",
+            "p_l": "P/L",
         }
     )
     config = {
@@ -349,6 +368,13 @@ def _tabela_grupo(itens: list, rotulo_ticker: str, sufixo: str, mostrar_valores:
         "Rentab. total R$": st.column_config.NumberColumn(format="R$ %.2f"),
         "Rentab. total %": st.column_config.NumberColumn(format="%.2f%%"),
         "Critério": st.column_config.TextColumn(width="small"),
+        "P/VP": st.column_config.NumberColumn(format="%.2f"),
+        "Vacância %": st.column_config.NumberColumn(format="%.2f"),
+        "Liquidez 30d": st.column_config.NumberColumn(format="R$ %.0f"),
+        "Cotistas": st.column_config.NumberColumn(format="%d"),
+        "Último rend.": st.column_config.NumberColumn(format="R$ %.2f"),
+        "Var. 12M %": st.column_config.NumberColumn(format="%.2f%%"),
+        "P/L": st.column_config.NumberColumn(format="%.2f"),
     }
     st.dataframe(
         tabela,
@@ -540,7 +566,7 @@ def render_painel(itens: list, analise: dict, mostrar_valores: bool):
     with s2:
         st.badge(f"{len(acoes)} ações", icon=":material/show_chart:", color="orange")
     with s3:
-        st.caption("Cotações Yahoo em cache · vacância/P/VP só em Atualizar critérios")
+        st.caption("Cotações Yahoo em cache · Investidor10 em Atualizar critérios / Indicadores")
     _kpis(totais, mostrar_valores)
 
     e1, e2, e3 = st.columns([1.1, 1.1, 1], gap="medium")

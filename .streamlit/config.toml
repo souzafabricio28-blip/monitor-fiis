@@ -11,41 +11,41 @@ enableXsrfProtection = true
 gatherUsageStats = false
 
 [theme]
-base = "dark"
-primaryColor = "#6EE7B7"
-backgroundColor = "#08090D"
-secondaryBackgroundColor = "#13151C"
-textColor = "#F4F1EA"
-linkColor = "#6EE7B7"
-borderColor = "#2A2F3A"
-dataframeBorderColor = "#2A2F3A"
-dataframeHeaderBackgroundColor = "#181B24"
-codeBackgroundColor = "#12141A"
-codeTextColor = "#6EE7B7"
-font = "DM Sans:https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
-headingFont = "Outfit:https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap"
+base = "light"
+primaryColor = "#009974"
+backgroundColor = "#F5F5F4"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#293038"
+linkColor = "#009974"
+borderColor = "#E3E6ED"
+dataframeBorderColor = "#E3E6ED"
+dataframeHeaderBackgroundColor = "#EDF1F3"
+codeBackgroundColor = "#F0F2F4"
+codeTextColor = "#009974"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@600;700&display=swap"
 codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
 baseFontSize = 16
-headingFontSizes = ["2.05rem", "1.45rem", "1.2rem"]
-headingFontWeights = [700, 600, 600]
-metricValueFontSize = "1.55rem"
-metricValueFontWeight = 600
-baseRadius = "0.85rem"
-buttonRadius = "full"
+headingFontSizes = ["1.85rem", "1.35rem", "1.15rem"]
+headingFontWeights = [700, 650, 600]
+metricValueFontSize = "1.45rem"
+metricValueFontWeight = 700
+baseRadius = "0.5rem"
+buttonRadius = "0.45rem"
 showWidgetBorder = true
 showSidebarBorder = true
 chartCategoricalColors = [
-    "#6EE7B7",
-    "#7DD3FC",
-    "#F5C16C",
-    "#F0A3B8",
-    "#A5B4FC",
-    "#FDBA74",
-    "#67E8F9",
-    "#FCA5A5",
+    "#009974",
+    "#4D81E7",
+    "#CF6A17",
+    "#10B981",
+    "#59886B",
+    "#A07D45",
+    "#2299DD",
+    "#ED1752",
 ]
 
 [theme.sidebar]
-backgroundColor = "#0C0E14"
-secondaryBackgroundColor = "#181B24"
-borderColor = "#2A2F3A"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F5F4"
+borderColor = "#E3E6ED"

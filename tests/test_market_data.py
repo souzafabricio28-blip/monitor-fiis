@@ -54,7 +54,7 @@ def test_sincroniza_proventos_no_sqlite(tmp_path, monkeypatch):
 def test_dados_sem_fundamentos_nao_raspa(monkeypatch):
     chamadas = []
     monkeypatch.setattr(
-        market_data._api, "buscar_fii", lambda ticker: chamadas.append(ticker) or {"erro": "x"}
+        market_data._api, "buscar_ativo", lambda ticker: chamadas.append(ticker) or {"erro": "x"}
     )
     monkeypatch.setattr(
         market_data,

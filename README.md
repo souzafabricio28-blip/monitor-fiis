@@ -12,12 +12,13 @@ cp .env.example .env
 streamlit run app.py --server.port=45217
 ```
 
-Tema escuro vem de `.streamlit/config.toml`: fundo `#08090D`, destaque menta
-`#6EE7B7`, cantos arredondados, botões em pílula e fontes DM Sans / Outfit.
+Tema claro no estilo Investidor10 em `.streamlit/config.toml`: fundo `#F5F5F4`,
+destaque verde `#009974`, cards de cotação/DY/P/VP/liquidez e fonte Inter.
 O dashboard carrega cotações em lote no Yahoo e reutiliza cache; scrape do
-Investidor10 só roda em **Atualizar critérios** ou **Buscar ativo**.
+Investidor10 (vacância, liquidez, cotistas, VP/cota, taxa de adm., variação 12M)
+roda em **Atualizar critérios** ou na página **Indicadores**.
 
-Fundos e ações ficam em abas no **Painel da carteira**: mix, treemap de
+Fundos e ações ficam em abas no **Resumo**: mix, treemap de
 alocação, ranking vs compra, peso de cada posição e diversificação por setor.
 
 Se definir `AUTH_PASSWORD`, o login aparece antes da carteira. Sem essa variável
@@ -72,8 +73,8 @@ Configure no painel do Render (nunca no Git):
 | `AUTH_PASSWORD` | senha com 12+ caracteres |
 | `TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID` | opcional |
 
-O tema escuro também pode ser reforçado com `STREAMLIT_THEME_*` (já listadas em
-`render.yaml`).
+O tema claro (Investidor10) também pode ser reforçado com `STREAMLIT_THEME_*`
+(já listadas em `render.yaml`).
 
 Antes do próximo deploy público, rotacione a senha do Neon e o token da API do
 Render se já tiverem sido expostos.

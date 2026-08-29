@@ -42,7 +42,7 @@ from rebalanceamento import registrar_plano_no_banco
 from scoring import calcular_score
 from seed_local import garantir_carteira_local, garantir_plano_local
 from telegram_notifier import verificar_alertas_watchlist
-from ui_theme import aplicar_plotly, grafico as _grafico, logo_app, pagina
+from ui_theme import aplicar_plotly, cabecalho_ativo, grafico as _grafico, logo_app, pagina
 
 st.set_page_config(
     page_title="Monitor de FIIs",
@@ -131,7 +131,7 @@ def main():
 
     with st.sidebar:
         st.markdown("**Monitor de FIIs**")
-        st.caption("Carteira · critérios do gestor")
+        st.caption("Resumo · indicadores · checklist")
         st.divider()
         if st.button("Atualizar cotações", width="stretch", type="primary"):
             st.session_state["forcar_cotacoes"] = True
@@ -150,15 +150,15 @@ def main():
         opcao = st.radio(
             "Navegação",
             [
-                "Dashboard",
-                "Proventos",
+                "Resumo",
+                "Dividendos",
                 "Carteira",
                 "Rebalanceamento",
-                "Buscar ativo",
-                "Critérios",
+                "Indicadores",
+                "Checklist",
                 "Quedas 10%",
                 "Watchlist",
-                "Comparar fundos",
+                "Comparador",
                 "Configurações",
             ],
         )
@@ -180,15 +180,15 @@ def main():
         st.session_state["_plano_local_ok"] = True
 
     rotas = {
-        "Dashboard": exibir_dashboard,
-        "Proventos": exibir_proventos,
+        "Resumo": exibir_dashboard,
+        "Dividendos": exibir_proventos,
         "Carteira": exibir_carteira,
         "Rebalanceamento": exibir_rebalanceamento,
-        "Buscar ativo": exibir_buscar_fii,
-        "Critérios": exibir_criterios,
+        "Indicadores": exibir_buscar_fii,
+        "Checklist": exibir_criterios,
         "Quedas 10%": exibir_quedas,
         "Watchlist": exibir_watchlist,
-        "Comparar fundos": exibir_comparacao,
+        "Comparador": exibir_comparacao,
         "Configurações": exibir_configuracoes,
     }
     rotas[opcao]()
@@ -204,6 +204,7 @@ def _montar_carteira_enriquecida(max_idade_min: int = 20):
         ticker = fii["ticker"]
         av = st.session_state.db.obter_avaliacao(ticker)
         av, resumo, setor = _resumo_posicao(ticker, av, forcar)
+        dados_av = (av or {}).get("dados") or {}
 
         itens.append(
             {
@@ -228,6 +229,13 @@ def _montar_carteira_enriquecida(max_idade_min: int = 20):
                 "lucro_total": fii.get("lucro_com_dividendos"),
                 "lucro_total_pct": fii.get("lucro_com_dividendos_pct"),
                 "classe": "Fundo" if classe_ativo(ticker) == "fundo" else "Ação",
+                "p_vp": dados_av.get("p_vp"),
+                "vacancia": dados_av.get("vacancia"),
+                "liquidez_diaria": dados_av.get("liquidez_diaria"),
+                "cotistas": dados_av.get("cotistas"),
+                "ultimo_rendimento": dados_av.get("ultimo_rendimento"),
+                "variacao_12m": dados_av.get("variacao_12m"),
+                "p_l": dados_av.get("p_l"),
             }
         )
     return itens, analise
@@ -261,8 +269,8 @@ def _alternar_visibilidade_valores():
 
 def exibir_dashboard():
     pagina(
-        "Painel da carteira",
-        "Patrimônio, mix fundos × ações e o que pesa em cada bloco.",
+        "Resumo da carteira",
+        "Patrimônio, mix fundos × ações e indicadores no estilo Investidor10.",
         selo="Ao vivo",
     )
     forcar_cot = bool(st.session_state.pop("forcar_cotacoes", False))
@@ -413,7 +421,7 @@ def _bloco_proventos(titulo: str, df_bloco: pd.DataFrame, chave: str):
 
 def exibir_proventos():
     """Calendário de proventos — histórico registado e estimativa mensal."""
-    pagina("Proventos", "Dividendos e JCP creditados. Fundos e ações em tabelas e gráficos separados.")
+    pagina("Dividendos", "Dividendos e JCP creditados. Fundos e ações em tabelas e gráficos separados.")
     db = st.session_state.db
     carteira = db.obter_carteira()
 
@@ -787,9 +795,10 @@ def exibir_rebalanceamento():
 
 def exibir_buscar_fii():
     pagina(
-        "Buscar ativo",
-        "Informe um fundo (MXRF11) ou uma ação (PETR4). "
-        "A classe é detectada pelo ticker; os critérios mudam conforme o tipo.",
+        "Indicadores",
+        "Mesmos cards da página pública do Investidor10: cotação, DY, P/VP, "
+        "liquidez, vacância, cotistas e o restante. Informe um fundo (MXRF11) "
+        "ou uma ação (PETR4).",
     )
     c1, c2 = st.columns([3, 1])
     ticker = c1.text_input("Ticker", "MXRF11").upper()
@@ -798,7 +807,7 @@ def exibir_buscar_fii():
     if not buscar:
         return
 
-    with st.spinner("Buscando..."):
+    with st.spinner("Buscando no Yahoo e no Investidor10..."):
         dados = buscar_dados_tempo_real(ticker, completo=True)
 
     if "erro" in dados:
@@ -810,59 +819,30 @@ def exibir_buscar_fii():
         av = avaliar_ativo(ticker)
         st.session_state.db.salvar_avaliacao(ticker, av)
         resumo = resumo_criterios(av)
+        dados_av = av.get("dados") or {}
+        for campo, valor in dados_av.items():
+            if dados.get(campo) in (None, "") and valor not in (None, ""):
+                dados[campo] = valor
     except Exception:
         av = None
         resumo = {"status": "nd", "ok": 0, "fail": 0, "nd": 0}
 
-    preco = dados.get("preco_atual")
     eh_fundo = classe_ativo(ticker) == "fundo"
-    st.subheader(f"{dados.get('ticker', ticker)} — {dados.get('nome', '')}")
+    cabecalho_ativo(
+        dados.get("ticker", ticker),
+        dados.get("nome") or dados.get("razao_social"),
+        "fundo" if eh_fundo else "acao",
+        dados,
+    )
     st.caption(
-        f"Classe: **{'Fundo imobiliário' if eh_fundo else 'Ação'}** · "
         f"{dados.get('fonte', '')} · {dados.get('horario_dados', '')} · "
-        f"status {dados.get('status_geral', 'N/D')} · confiança {dados.get('confianca', 'N/D')}"
+        f"status {dados.get('status_geral', 'N/D')} · confiança {dados.get('confianca', 'N/D')} · "
+        f"score {score:.0f}/100 · {status_badge(resumo['status'])}"
     )
+    if dados.get("url") or dados.get("url_investidor10"):
+        st.caption(dados.get("url") or dados.get("url_investidor10"))
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(
-        "Preço",
-        f"R$ {float(preco):.2f}" if preco is not None else "N/D",
-        f"{dados.get('variacao', 0):+.2f}%" if preco is not None else None,
-    )
-    c2.metric(
-        "DY Anual",
-        f"{float(dados['dy']):.2f}%" if dados.get("dy") is not None else "N/D",
-    )
-    c3.metric(
-        "P/VP",
-        f"{float(dados['p_vp']):.2f}" if dados.get("p_vp") is not None else "N/D",
-    )
-    c4.metric("Score / Critério", f"{score:.0f}/100 · {status_badge(resumo['status'])}")
-
-    if eh_fundo:
-        c1, c2, c3 = st.columns(3)
-        c1.metric(
-            "Vacância",
-            f"{float(dados['vacancia']):.1f}%"
-            if dados.get("vacancia") is not None
-            else "N/D",
-        )
-        c2.metric(
-            "Patrimônio",
-            f"R$ {float(dados['patrimonio']):,.0f}"
-            if dados.get("patrimonio") is not None
-            else "N/D",
-        )
-        c3.metric("Setor", str(dados.get("setor") or "N/D"))
-    else:
-        c1, c2 = st.columns(2)
-        c1.metric(
-            "Patrimônio",
-            f"R$ {float(dados['patrimonio']):,.0f}"
-            if dados.get("patrimonio") is not None
-            else "N/D",
-        )
-        c2.metric("Setor", str(dados.get("setor") or "Ação"))
+    preco = dados.get("preco_atual") if dados.get("preco_atual") is not None else dados.get("preco")
 
     if dados.get("divergencias"):
         st.warning(" · ".join(dados["divergencias"]))
@@ -908,7 +888,7 @@ def exibir_buscar_fii():
 
 def exibir_criterios():
     pagina(
-        "Critérios do gestor",
+        "Checklist",
         "FIIs: DY mensal 0,60–1,50% · Vacância ≤ 10% · P/VP 0,70–1,10 · "
         "liquidez · +10 anos · diversificar galpão/shopping/empresarial/papel. "
         "Ações: sem prejuízo 5 anos · liquidez · P/VP ≥ 0,60 · +10 anos · dívida < PL.",
@@ -925,8 +905,14 @@ def exibir_criterios():
     av_detalhe = st.session_state.get("avaliacao_detalhe")
     if av_detalhe and st.session_state.get("avaliacao_ticker") == ticker:
         resumo = resumo_criterios(av_detalhe)
-        classe_txt = "Fundo imobiliário" if classe_ativo(ticker) == "fundo" else "Ação"
-        st.subheader(f"{ticker} — {classe_txt} — {status_badge(resumo['status'])}")
+        classe = "fundo" if classe_ativo(ticker) == "fundo" else "acao"
+        dados_av = av_detalhe.get("dados") or {}
+        cabecalho_ativo(
+            ticker,
+            dados_av.get("nome") or dados_av.get("razao_social"),
+            classe,
+            dados_av,
+        )
         st.caption(
             f"Aprovados: {resumo['ok']} · Reprovados: {resumo['fail']} · N/D: {resumo['nd']}"
         )
@@ -936,8 +922,8 @@ def exibir_criterios():
     st.subheader("Carteira sob os critérios")
     st.caption(
         "Fundos e ações em tabelas separadas. Os critérios de FII (DY, vacância, P/VP) "
-        "não se aplicam a ações. Usa Yahoo + catálogo por omissão. **Atualizar critérios** "
-        "no menu busca vacância no Investidor10 só para o que ainda estiver N/D."
+        "não se aplicam a ações. **Atualizar critérios** busca no Investidor10 "
+        "vacância, liquidez, cotistas, VP/cota, taxa de adm. e variação 12 meses."
     )
     carteira = st.session_state.db.obter_carteira()
     if carteira.empty:
@@ -1147,9 +1133,9 @@ def exibir_watchlist():
 
 def exibir_comparacao():
     pagina(
-        "Comparar fundos",
+        "Comparador",
         "Compare só FIIs (até a lista abaixo). Ações não entram nesta tabela — "
-        "use Buscar ativo para PETR4 e similares.",
+        "use Indicadores para PETR4 e similares.",
     )
     carteira = st.session_state.db.obter_carteira()
     opcoes = [t for t in FIIS_POPULARES if eh_fii(t)]
