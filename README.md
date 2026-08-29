@@ -36,6 +36,17 @@ A diversificação usa o catálogo (mostra o que falta: shopping, empresarial,
 galpão) sem esperar o scrape. Os critérios partem do Yahoo Finance e da tabela
 de anos de listagem; Investidor10 só entra se você pedir **Atualizar critérios**.
 
+## Vigia (monitoramento)
+
+Não dá para “instalar o ChatGPT” no Render sem uma chave e um processo acordado. O app tem o **Vigia**:
+
+1. No dashboard: menu **Vigia** → **Rodar vigia agora** (saúde do site + carteira).
+2. Na máquina ou no cron: `python vigia.py` (e `python scheduler.py` às 18:45).
+3. Com `TELEGRAM_TOKEN` e `TELEGRAM_CHAT_ID`, o relatório vai no Telegram.
+4. Com `GROQ_API_KEY` (grátis) ou `OPENAI_API_KEY`, um modelo resume o relatório. Sem chave, só regras (site fora, queda 10%, watchlist, proventos zerados).
+
+Outro caminho: no Cursor, crie uma **Automação agendada** pedindo para checar o site, o health e te avisar. Isso usa o agente da conversa, não um modelo dentro do Render.
+
 ## Testes
 
 ```bash

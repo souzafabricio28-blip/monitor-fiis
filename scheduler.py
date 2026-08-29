@@ -161,6 +161,16 @@ def tarefa_gerar_relatorio():
     print(f"✅ [{datetime.now().strftime('%H:%M')}] Relatório gerado!")
 
 
+def tarefa_vigia():
+    """Tarefa: saúde do site + resumo da carteira (Telegram se configurado)."""
+    print(f"\n🛡️ [{datetime.now().strftime('%H:%M')}] Vigia...")
+    from vigia import rodar_vigia
+
+    resultado = rodar_vigia(enviar=True)
+    print(resultado.get("texto") or "")
+    print(f"✅ [{datetime.now().strftime('%H:%M')}] Vigia ok={resultado['saude'].get('ok')}")
+
+
 def criar_agendador_padrao():
     """Cria um agendador com configurações padrão"""
     scheduler = FiiScheduler()
@@ -168,6 +178,7 @@ def criar_agendador_padrao():
     # Agendar tarefas
     scheduler.agendar_diariamente("18:00", tarefa_atualizar_cotacoes, "Atualizar cotações")
     scheduler.agendar_diariamente("18:30", tarefa_verificar_alertas, "Verificar alertas")
+    scheduler.agendar_diariamente("18:45", tarefa_vigia, "Vigia do app (saúde + carteira)")
     scheduler.agendar_diariamente("19:00", tarefa_gerar_relatorio, "Gerar relatório")
     
     return scheduler

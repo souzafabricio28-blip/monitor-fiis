@@ -159,6 +159,7 @@ def main():
                 "Quedas 10%",
                 "Watchlist",
                 "Comparador",
+                "Vigia",
                 "Configurações",
             ],
         )
@@ -189,6 +190,7 @@ def main():
         "Quedas 10%": exibir_quedas,
         "Watchlist": exibir_watchlist,
         "Comparador": exibir_comparacao,
+        "Vigia": exibir_vigia,
         "Configurações": exibir_configuracoes,
     }
     rotas[opcao]()
@@ -1129,6 +1131,50 @@ def exibir_watchlist():
     if remover and st.button("Remover selecionado", type="secondary"):
         st.session_state.db.remover_watchlist(remover)
         st.rerun()
+
+
+def exibir_vigia():
+    pagina(
+        "Vigia",
+        "Pinga a saúde do site, lê a carteira (quedas, watchlist, proventos) e "
+        "opcionalmente pede um resumo a um modelo se GROQ_API_KEY ou OPENAI_API_KEY "
+        "estiver no ambiente. Sem chave, o relatório é só regras — não inventa texto.",
+    )
+    from vigia import SITE_PADRAO, rodar_vigia
+
+    st.caption(
+        "No Render o processo dorme: o vigia também acorda o app. "
+        "Telegram usa TELEGRAM_TOKEN e TELEGRAM_CHAT_ID."
+    )
+    tem_ia = bool(os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    if tem_ia:
+        st.success("Chave de modelo detectada — o resumo em linguagem natural será pedido à API.")
+    else:
+        st.info(
+            "Sem GROQ_API_KEY / OPENAI_API_KEY o vigia usa só regras (site no ar, queda 10%, "
+            "watchlist, proventos zerados). Para IA de verdade, coloque uma dessas chaves no .env."
+        )
+    enviar = st.checkbox("Enviar no Telegram se estiver configurado", value=True)
+    if st.button("Rodar vigia agora", type="primary", width="stretch"):
+        with st.spinner("Checando saúde e carteira..."):
+            resultado = rodar_vigia(db=st.session_state.db, enviar=enviar)
+        st.session_state["_vigia_ultimo"] = resultado
+        if resultado["saude"].get("ok"):
+            st.success("Site no ar.")
+        else:
+            st.error("Site não respondeu no health check.")
+        if resultado.get("telegram"):
+            st.success("Resumo enviado no Telegram.")
+        elif enviar:
+            st.caption("Telegram não enviado (faltam token/chat ou está desligado).")
+
+    ultimo = st.session_state.get("_vigia_ultimo")
+    if not ultimo:
+        st.caption("Ainda não rodou nesta sessão.")
+        return
+    st.subheader("Último relatório")
+    st.code(ultimo.get("texto") or "", language=None)
+    st.caption(f"Coletado em {ultimo.get('coletado_em')} · {SITE_PADRAO}")
 
 
 def exibir_comparacao():
