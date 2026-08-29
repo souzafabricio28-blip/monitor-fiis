@@ -109,10 +109,14 @@ Fluxo: executar na corretora → confirmar no app (Registrar VENDA/COMPRA execut
 
 ## Próximos passos sugeridos para Cloud Agent
 
-1. Continuar rebalanceamento guiado (usuário executando vendas/compras)
-2. Após aprovação: commit, push GitHub, deploy Render + migração Neon
-3. Melhorar classificação de setor (KNRI11 aparece como Híbrido)
-4. Registrar proventos históricos para métricas de proventos recebidos
+1. Tema escuro persistido em `.streamlit/config.toml` e `render.yaml`
+2. KNRI11 classificado como Empresarial pelo catálogo curado
+3. Aviso `AUTH_PASSWORD` não mostra mais formulário falso nem PIN
+4. Dashboard mais rápido (cotações em paralelo; critérios sob demanda)
+5. Proventos 12m sincronizados do Yahoo; PETR4 marcado como AÇÃO
+6. Plano de rebalanceamento pré-carregado no SQLite local
+7. Continuar execução na corretora e confirmar na aba Rebalanceamento
+8. Rotacionar senha Neon e token Render se ainda estiverem expostos
 
 ## Instrução para o Cloud Agent
 

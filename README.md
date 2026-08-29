@@ -46,7 +46,24 @@ python -m pytest
 
 Serviço em uso: `https://monitor-fiis-6dk7.onrender.com`
 
-Configure no painel (nunca no Git):
+Quando pedir para **subir** as alterações, o fluxo é commit de tudo o que está versionado, push no GitHub `master` e deploy no Render (o site no ar). Segredos (`.env`) nunca sobem.
+
+```bash
+python subir_producao.py
+```
+
+Isso copia o código já commitado para `souzafabricio28-blip/monitor-fiis` (`master`) e dispara o Render.
+
+No `.env` local (nunca no Git):
+
+| Variável | Uso |
+|----------|-----|
+| `GH_TOKEN` | PAT com Contents write no `monitor-fiis` |
+| `RENDER_DEPLOY_HOOK` | URL do Deploy Hook do serviço (Render → Settings) |
+
+No GitHub: **Settings → Secrets → Actions → `RENDER_DEPLOY_HOOK`**. O PAT precisa do escopo **workflow** para o Actions publicar `deploy-render.yml`; sem isso o `subir_producao.py` sobe o app e dispara o hook, mas não altera workflows.
+
+Configure no painel do Render (nunca no Git):
 
 | Variável | Uso |
 |----------|-----|
