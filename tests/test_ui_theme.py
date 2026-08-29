@@ -51,6 +51,16 @@ def test_cards_resumo_i10_formatam_nd():
     assert all(c["valor"] == "N/D" for c in cards)
 
 
+def test_cards_resumo_nao_mostram_nan():
+    cards = cards_resumo_i10(
+        {"preco_atual": float("nan"), "preco": 9.3, "variacao_dia": float("nan"), "variacao": 1.2},
+        "fii",
+    )
+    cot = next(c for c in cards if c["label"] == "Cotação")
+    assert cot["valor"] == "R$ 9,30"
+    assert cot["delta"] == "+1,20%"
+
+
 def test_cards_detalhe_fii_incluem_vacancia():
     cards = cards_detalhe_i10(
         {"vacancia": 2.9, "cotistas": 608340, "setor": "Logístico"},

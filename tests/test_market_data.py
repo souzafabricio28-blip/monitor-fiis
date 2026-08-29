@@ -106,3 +106,26 @@ def test_buscar_cotacoes_lote_usa_download(monkeypatch):
     lote = market_data.buscar_cotacoes_lote(["MXRF11", "PETR4"])
     assert lote["MXRF11"]["preco_atual"] == 10.0
     assert lote["PETR4"]["preco_atual"] == 40.0
+
+
+def test_cotacao_usa_ultimo_close_valido(monkeypatch):
+    class _Ticker:
+        def __init__(self, _symbol):
+            pass
+
+        def history(self, period="5d"):
+            return pd.DataFrame(
+                {
+                    "Close": [9.30, float("nan")],
+                    "Open": [9.20, 9.25],
+                    "High": [9.40, 9.40],
+                    "Low": [9.10, 9.20],
+                    "Volume": [1000, float("nan")],
+                }
+            )
+
+    monkeypatch.setattr(market_data.yf, "Ticker", _Ticker)
+    cotacao = market_data.buscar_cotacao("MXRF11")
+    assert cotacao is not None
+    assert cotacao["preco_atual"] == 9.3
+    assert cotacao["variacao_dia"] is not None

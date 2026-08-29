@@ -141,6 +141,40 @@ def test_aplicar_nao_zera_nem_sobrescreve_yahoo():
     assert yahoo["preco"] is None  # qualidade não registrou Yahoo neste teste
 
 
+def test_aplicar_preenche_preco_nan_do_yahoo():
+    dados = {"preco_atual": float("nan"), "preco": float("nan"), "qualidade": {}, "divergencias": []}
+
+    def registrar(dest, indicador, valor, fonte, confianca="media", status="ok"):
+        dest[indicador] = valor
+
+    usadas = aplicar_fontes_extras(
+        dados,
+        [
+            {
+                "fonte": "Funds Explorer",
+                "preco": 9.3,
+                "dy": None,
+                "p_vp": None,
+                "p_l": None,
+                "vacancia": None,
+                "patrimonio": None,
+                "setor": None,
+                "liquidez_diaria": None,
+                "ultimo_rendimento": None,
+                "vp_cota": None,
+                "erro": None,
+                "url": "https://www.fundsexplorer.com.br/funds/mxrf11",
+            }
+        ],
+        registrar=registrar,
+        divergencia_pct=lambda a, b: None,
+        limite=10.0,
+    )
+    assert dados["preco_atual"] == 9.3
+    assert dados["preco"] == 9.3
+    assert "Funds Explorer" in usadas
+
+
 def test_google_finance_fora_do_pool_paralelo():
     nomes = [fn.__name__ for fn in FONTES_PARALELAS]
     assert "buscar_google_finance" not in nomes

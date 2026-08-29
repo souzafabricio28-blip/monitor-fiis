@@ -19,7 +19,7 @@ from urllib.parse import quote
 import requests
 from bs4 import BeautifulSoup
 
-from investidor10 import extrair_inteiro_br, extrair_percentual, extrair_valor_br, extrair_valor_compacto
+from investidor10 import extrair_inteiro_br, extrair_percentual, extrair_valor_br, extrair_valor_compacto, valor_ausente
 from lista_gestor import TICKERS_ACAO_MESMO_COM_11
 
 logger = logging.getLogger(__name__)
@@ -458,9 +458,10 @@ def _valor_da_fonte(dados: dict, campo: str, nome_fonte: str):
     meta = (dados.get("qualidade") or {}).get(campo) or {}
     fonte = str(meta.get("fonte") or "")
     if fonte == nome_fonte or fonte.startswith(nome_fonte):
-        return dados.get(campo)
+        bruto = dados.get(campo)
+        return None if valor_ausente(bruto) else bruto
     extra = meta.get(f"valor_{nome_fonte}")
-    if extra not in (None, ""):
+    if extra not in (None, "") and not valor_ausente(extra):
         return extra
     return None
 
@@ -522,7 +523,7 @@ def aplicar_fontes_extras(
                 dados["macro"]["fonte_usd"] = nome
                 usadas.append(nome)
             continue
-        tem_dado = any(extra.get(origem) not in (None, "") for origem, _ in CAMPOS_PREENCHER)
+        tem_dado = any(not valor_ausente(extra.get(origem)) for origem, _ in CAMPOS_PREENCHER)
         consultadas.append(
             {"fonte": nome, "ok": tem_dado, "url": url, "erro": extra.get("erro")}
         )
@@ -531,10 +532,10 @@ def aplicar_fontes_extras(
         usadas.append(nome)
         for origem, destino in CAMPOS_PREENCHER:
             valor = extra.get(origem)
-            if valor in (None, ""):
+            if valor_ausente(valor):
                 continue
             atual = dados.get(destino)
-            if atual is None:
+            if valor_ausente(atual):
                 registrar(dados, destino, valor, nome, confianca="media")
                 if destino == "preco_atual":
                     dados["preco"] = valor

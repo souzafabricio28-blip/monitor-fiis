@@ -19,6 +19,17 @@ def test_parser_brasileiro_preserva_nd():
     assert extrair_valor_compacto("R$ 17,30 M") == 17_300_000
     assert extrair_valor_compacto("R$ 7,59 Bilhões") == 7_590_000_000
     assert formatar_compacto(17_300_000) == "R$ 17,30 M"
+    assert formatar_compacto(float("nan")) == "N/D"
+    from investidor10 import formatar_numero, formatar_pct, numero_valido, valor_ausente
+
+    assert numero_valido(float("nan")) is None
+    assert numero_valido(float("inf")) is None
+    assert numero_valido(9.3) == 9.3
+    assert valor_ausente(float("nan")) is True
+    assert valor_ausente(0) is False
+    assert valor_ausente("Híbrido") is False
+    assert formatar_pct(float("nan")) == "N/D"
+    assert formatar_numero(float("nan")) == "N/D"
 
 
 def test_parser_html_sem_rede():

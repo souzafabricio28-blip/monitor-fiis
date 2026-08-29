@@ -5,7 +5,7 @@ from __future__ import annotations
 import plotly.express as px
 import streamlit as st
 
-from investidor10 import formatar_compacto, formatar_numero, formatar_pct
+from investidor10 import formatar_compacto, formatar_numero, formatar_pct, numero_valido
 
 FUNDO = "#1A1A1A"
 SUPERFICIE = "#242424"
@@ -119,10 +119,12 @@ def cabecalho_ativo(
 
 
 def cards_resumo_i10(dados: dict, classe: str) -> list[dict]:
-    preco = dados.get("preco_atual") if dados.get("preco_atual") is not None else dados.get("preco")
-    var_dia = dados.get("variacao_dia")
+    preco = numero_valido(dados.get("preco_atual"))
+    if preco is None:
+        preco = numero_valido(dados.get("preco"))
+    var_dia = numero_valido(dados.get("variacao_dia"))
     if var_dia is None:
-        var_dia = dados.get("variacao")
+        var_dia = numero_valido(dados.get("variacao"))
     itens = [
         {
             "label": "Cotação",

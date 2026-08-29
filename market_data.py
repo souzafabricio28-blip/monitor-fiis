@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional
 import pandas as pd
 import yfinance as yf
 
-from investidor10 import CAMPOS_I10, Investidor10API
+from investidor10 import CAMPOS_I10, Investidor10API, numero_valido, valor_ausente
 from fontes_extras import aplicar_fontes_extras, consultar_fontes_extras
 
 _api = Investidor10API()
@@ -46,6 +46,8 @@ def _registrar_meta(
 
 
 def _divergencia_percentual(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    a = numero_valido(a)
+    b = numero_valido(b)
     if a is None or b is None or a == 0:
         return None
     return abs(float(a) - float(b)) / abs(float(a)) * 100
@@ -76,13 +78,17 @@ def calcular_dy(ticker: str, preco: Optional[float] = None) -> Optional[Dict]:
             return None
 
         total = float(recentes.sum())
+        preco = numero_valido(preco)
         if preco is None or preco <= 0:
             hist = fii.history(period="5d")
             if hist.empty:
                 return None
-            preco = float(hist["Close"].iloc[-1])
+            fecha = hist["Close"].dropna()
+            if fecha.empty:
+                return None
+            preco = numero_valido(fecha.iloc[-1])
 
-        if preco <= 0:
+        if preco is None or preco <= 0:
             return None
 
         dy_anual = (total / preco) * 100
@@ -116,20 +122,32 @@ def buscar_cotacao(ticker: str) -> Optional[Dict]:
         hist = fii.history(period="5d")
         if hist.empty:
             return None
-        preco = float(hist["Close"].iloc[-1])
-        abertura = float(hist["Open"].iloc[-1])
-        anterior = float(hist["Close"].iloc[-2]) if len(hist) > 1 else preco
+        fecha = hist["Close"].dropna()
+        if fecha.empty:
+            return None
+        preco = numero_valido(fecha.iloc[-1])
+        if preco is None:
+            return None
+        abertura = numero_valido(hist["Open"].iloc[-1])
+        anterior = numero_valido(fecha.iloc[-2]) if len(fecha) > 1 else preco
+        if anterior is None:
+            anterior = preco
+        volume = 0
+        if "Volume" in hist.columns:
+            vol = numero_valido(hist["Volume"].iloc[-1])
+            volume = int(vol) if vol is not None else 0
+        var_pct = ((preco - anterior) / anterior) * 100 if anterior else None
         return {
             "ticker": ticker.upper().replace(".SA", ""),
             "preco_atual": preco,
-            "variacao_dia": preco - anterior,
-            "variacao_pct": ((preco - anterior) / anterior) * 100 if anterior else 0,
-            "variacao": ((preco - anterior) / anterior) * 100 if anterior else 0,
+            "variacao_dia": var_pct,
+            "variacao_pct": var_pct,
+            "variacao": var_pct,
             "data": _agora_iso(),
-            "volume": int(hist["Volume"].iloc[-1]) if "Volume" in hist else 0,
+            "volume": volume,
             "abertura": abertura,
-            "maxima_dia": float(hist["High"].iloc[-1]),
-            "minima_dia": float(hist["Low"].iloc[-1]),
+            "maxima_dia": numero_valido(hist["High"].iloc[-1]) if "High" in hist.columns else None,
+            "minima_dia": numero_valido(hist["Low"].iloc[-1]) if "Low" in hist.columns else None,
             "preco_anterior": anterior,
         }
     except Exception as exc:
@@ -158,25 +176,25 @@ def _close_de_historico(hist: pd.DataFrame, simbolo: str, unico: bool = False) -
             if "Close" in hist.columns:
                 serie = hist["Close"].dropna()
                 if not serie.empty:
-                    return float(serie.iloc[-1])
+                    return numero_valido(serie.iloc[-1])
         candidatos = (simbolo, simbolo.replace(".SA", ""), f"{simbolo.replace('.SA', '')}.SA")
         for cand in candidatos:
             chave = (cand, "Close")
             if isinstance(hist.columns, pd.MultiIndex) and chave in hist.columns:
                 serie = hist[chave].dropna()
                 if not serie.empty:
-                    return float(serie.iloc[-1])
+                    return numero_valido(serie.iloc[-1])
             chave_inv = ("Close", cand)
             if isinstance(hist.columns, pd.MultiIndex) and chave_inv in hist.columns:
                 serie = hist[chave_inv].dropna()
                 if not serie.empty:
-                    return float(serie.iloc[-1])
+                    return numero_valido(serie.iloc[-1])
             if isinstance(hist.columns, pd.MultiIndex):
                 nivel0 = list(hist.columns.get_level_values(0))
                 if cand in nivel0 and "Close" in hist[cand].columns:
                     serie = hist[cand]["Close"].dropna()
                     if not serie.empty:
-                        return float(serie.iloc[-1])
+                        return numero_valido(serie.iloc[-1])
     except Exception:
         return None
     return None
@@ -314,7 +332,7 @@ def buscar_dados_completos(
     if usar_cache and db is not None:
         cached = db.get_cache(ticker, CACHE_MINUTES)
         if cached and "erro" not in cached:
-            if incluir_fundamentos or cached.get("preco_atual") is not None:
+            if incluir_fundamentos or numero_valido(cached.get("preco_atual")) is not None:
                 cached["fonte_cache"] = "banco"
                 return cached
 
@@ -395,9 +413,9 @@ def buscar_dados_completos(
             dados["url_investidor10"] = inv.get("url")
             for campo in CAMPOS_I10:
                 valor = inv.get(campo)
-                if valor is not None and valor != "":
+                if not valor_ausente(valor):
                     _registrar_meta(dados, campo, valor, "Investidor10", confianca="media")
-                elif dados.get(campo) is None and campo in (
+                elif valor_ausente(dados.get(campo)) and campo in (
                     "p_vp",
                     "patrimonio",
                     "vacancia",
@@ -409,8 +427,8 @@ def buscar_dados_completos(
                         dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
                     )
 
-            preco_inv = inv.get("preco")
-            if dados.get("preco_atual") is None and preco_inv is not None:
+            preco_inv = numero_valido(inv.get("preco"))
+            if numero_valido(dados.get("preco_atual")) is None and preco_inv is not None:
                 _registrar_meta(
                     dados, "preco_atual", preco_inv, "Investidor10", confianca="baixa"
                 )
@@ -447,7 +465,7 @@ def buscar_dados_completos(
 
     dados["fonte"] = " + ".join(dict.fromkeys(fontes)) or "fontes indisponíveis"
     campos_ok = ("preco_atual", "dy", "p_vp", "patrimonio", "vacancia") if incluir_fundamentos else ("preco_atual", "dy")
-    disponiveis = sum(dados.get(campo) is not None for campo in campos_ok)
+    disponiveis = sum(numero_valido(dados.get(campo)) is not None for campo in campos_ok)
     dados["status_geral"] = (
         "ok" if disponiveis == len(campos_ok) and not dados["divergencias"]
         else "parcial" if disponiveis
@@ -463,7 +481,7 @@ def buscar_dados_completos(
     if db is not None:
         try:
             db.set_cache(ticker, dados)
-            if dados.get("preco_atual") is not None:
+            if numero_valido(dados.get("preco_atual")) is not None:
                 db.salvar_cotacao(ticker, float(dados["preco_atual"]))
         except Exception as exc:
             logger.warning("Falha ao persistir cache/cotação de %s: %s", ticker, exc)

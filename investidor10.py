@@ -5,6 +5,7 @@ Página pública: cards de cotação + tabela de informações. Sem login/PRO.
 
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from datetime import datetime
@@ -73,7 +74,32 @@ def extrair_valor_compacto(texto: str) -> Optional[float]:
     return valor * mult
 
 
+def numero_valido(valor) -> Optional[float]:
+    """Finite float; NaN/inf/ausente permanecem N/D (nunca viram 0)."""
+    if valor is None or valor == "":
+        return None
+    if isinstance(valor, bool):
+        return None
+    try:
+        n = float(valor)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(n):
+        return None
+    return n
+
+
+def valor_ausente(valor) -> bool:
+    """True para None, vazio, NaN e inf. Texto (setor) conta como presente."""
+    if valor is None or valor == "":
+        return True
+    if isinstance(valor, str):
+        return False
+    return numero_valido(valor) is None
+
+
 def formatar_compacto(valor: Optional[float], prefixo: str = "R$ ") -> str:
+    valor = numero_valido(valor)
     if valor is None:
         return "N/D"
     abs_v = abs(valor)
@@ -87,12 +113,14 @@ def formatar_compacto(valor: Optional[float], prefixo: str = "R$ ") -> str:
 
 
 def formatar_pct(valor: Optional[float], casas: int = 2) -> str:
+    valor = numero_valido(valor)
     if valor is None:
         return "N/D"
     return f"{valor:.{casas}f}%".replace(".", ",")
 
 
 def formatar_numero(valor: Optional[float], casas: int = 2) -> str:
+    valor = numero_valido(valor)
     if valor is None:
         return "N/D"
     return f"{valor:.{casas}f}".replace(".", ",")
