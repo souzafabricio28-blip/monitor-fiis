@@ -1,4 +1,4 @@
-"""Tema visual no estilo Investidor10: fundo claro, verde #009974, cards de indicadores."""
+"""Tema visual no estilo Status Invest: fundo carvão, laranja #F39200, texto claro."""
 
 from __future__ import annotations
 
@@ -7,33 +7,33 @@ import streamlit as st
 
 from investidor10 import formatar_compacto, formatar_numero, formatar_pct
 
-FUNDO = "#F5F5F4"
-SUPERFICIE = "#FFFFFF"
-PRIMARIA = "#009974"
-TEXTO = "#293038"
-MUTED = "#5F6C7D"
-GRADE = "#E3E6ED"
-POSITIVO = "#009974"
-NEGATIVO = "#ED1752"
-FUNDOS_COR = "#009974"
-ACOES_COR = "#4D81E7"
+FUNDO = "#1A1A1A"
+SUPERFICIE = "#242424"
+PRIMARIA = "#F39200"
+TEXTO = "#F5F5F5"
+MUTED = "#A0A0A0"
+GRADE = "#333333"
+POSITIVO = "#00C853"
+NEGATIVO = "#FF5252"
+FUNDOS_COR = "#F39200"
+ACOES_COR = "#42A5F5"
 
 CORES_GRAFICO = [
-    "#009974",
-    "#4D81E7",
-    "#CF6A17",
-    "#10B981",
-    "#59886B",
-    "#A07D45",
-    "#2299DD",
-    "#ED1752",
+    "#F39200",
+    "#00C853",
+    "#42A5F5",
+    "#FF5252",
+    "#AB47BC",
+    "#26C6DA",
+    "#FFCA28",
+    "#8D6E63",
 ]
 
 TEMA_PLOTLY = dict(
-    template="plotly_white",
+    template="plotly_dark",
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color=TEXTO, size=13, family="Inter, sans-serif"),
+    font=dict(color=TEXTO, size=13, family="Roboto, sans-serif"),
     legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.16),
     margin=dict(l=8, r=8, t=48, b=16),
     hoverlabel=dict(bgcolor=SUPERFICIE, font_size=12, bordercolor=GRADE),
@@ -43,7 +43,7 @@ TEMA_PLOTLY = dict(
 
 
 def aplicar_plotly() -> None:
-    px.defaults.template = "plotly_white"
+    px.defaults.template = "plotly_dark"
     px.defaults.color_discrete_sequence = CORES_GRAFICO
 
 
@@ -66,14 +66,14 @@ def logo_app() -> None:
 
 def pagina(titulo: str, descricao: str | None = None, selo: str | None = None) -> None:
     if selo:
-        st.badge(selo, icon=":material/bolt:", color="green")
+        st.badge(selo, icon=":material/bolt:", color="orange")
     st.header(titulo)
     if descricao:
         st.caption(descricao)
 
 
 def metricas_em_cards(itens: list[dict], por_linha: int = 5) -> None:
-    """Faixa de indicadores no estilo Investidor10 (rótulo pequeno, valor grande)."""
+    """Faixa de indicadores no estilo Status Invest (rótulo pequeno, valor grande)."""
     if not itens:
         return
     for inicio in range(0, len(itens), por_linha):
@@ -108,7 +108,7 @@ def cabecalho_ativo(
         st.badge(
             "Fundo imobiliário" if classe in {"fundo", "fii"} else "Ação",
             icon=":material/apartment:" if classe in {"fundo", "fii"} else ":material/show_chart:",
-            color="green" if classe in {"fundo", "fii"} else "blue",
+            color="orange" if classe in {"fundo", "fii"} else "blue",
         )
         if dados.get("gestao"):
             st.caption(f"Gestão {dados['gestao']}")

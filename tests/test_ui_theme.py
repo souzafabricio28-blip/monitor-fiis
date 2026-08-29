@@ -11,21 +11,32 @@ from ui_theme import (
 )
 
 
-def test_tema_config_usa_paleta_investidor10():
+def test_tema_config_usa_paleta_status_invest():
     texto = Path(".streamlit/config.toml").read_text(encoding="utf-8")
     assert f'primaryColor = "{PRIMARIA}"' in texto
     assert f'backgroundColor = "{FUNDO}"' in texto
     assert f'secondaryBackgroundColor = "{SUPERFICIE}"' in texto
     assert f'textColor = "{TEXTO}"' in texto
-    assert 'base = "light"' in texto
-    assert PRIMARIA == "#009974"
-    assert "Inter" in texto
-    assert 'baseRadius = "0.5rem"' in texto
+    assert 'base = "dark"' in texto
+    assert PRIMARIA == "#F39200"
+    assert TEXTO == "#F5F5F5"
+    assert FUNDO == "#1A1A1A"
+    assert "Roboto" in texto
+    assert "[theme.sidebar]" in texto
+    assert "[theme.dark.sidebar]" in texto
+    assert "[theme.light.sidebar]" in texto
+    # Contraste: sidebar nunca branca com texto claro
+    assert 'backgroundColor = "#111111"' in texto
+    sidebar = texto.split("[theme.sidebar]", 1)[1].split("[theme.", 1)[0]
+    assert 'textColor = "#F5F5F5"' in sidebar
+    assert 'backgroundColor = "#FFFFFF"' not in texto
+    assert 'backgroundColor = "#F5F5F4"' not in texto
 
 
 def test_paleta_de_graficos_nao_e_a_violeta_antiga():
     assert "#818CF8" not in CORES_GRAFICO
     assert PRIMARIA in CORES_GRAFICO
+    assert "#00C853" in CORES_GRAFICO
 
 
 def test_cards_resumo_i10_formatam_nd():

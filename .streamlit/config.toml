@@ -11,41 +11,77 @@ enableXsrfProtection = true
 gatherUsageStats = false
 
 [theme]
-base = "light"
-primaryColor = "#009974"
-backgroundColor = "#F5F5F4"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#293038"
-linkColor = "#009974"
-borderColor = "#E3E6ED"
-dataframeBorderColor = "#E3E6ED"
-dataframeHeaderBackgroundColor = "#EDF1F3"
-codeBackgroundColor = "#F0F2F4"
-codeTextColor = "#009974"
-font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@600;700&display=swap"
+base = "dark"
+primaryColor = "#F39200"
+backgroundColor = "#1A1A1A"
+secondaryBackgroundColor = "#242424"
+textColor = "#F5F5F5"
+linkColor = "#F39200"
+borderColor = "#333333"
+dataframeBorderColor = "#333333"
+dataframeHeaderBackgroundColor = "#111111"
+codeBackgroundColor = "#111111"
+codeTextColor = "#F39200"
+redColor = "#FF5252"
+orangeColor = "#F39200"
+greenColor = "#00C853"
+font = "Roboto:https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,500;0,700;1,400&display=swap"
+headingFont = "Roboto:https://fonts.googleapis.com/css2?family=Roboto:wght@500;700&display=swap"
 codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
 baseFontSize = 16
-headingFontSizes = ["1.85rem", "1.35rem", "1.15rem"]
-headingFontWeights = [700, 650, 600]
-metricValueFontSize = "1.45rem"
+headingFontSizes = ["1.75rem", "1.3rem", "1.1rem"]
+headingFontWeights = [700, 700, 500]
+metricValueFontSize = "1.4rem"
 metricValueFontWeight = 700
-baseRadius = "0.5rem"
-buttonRadius = "0.45rem"
+baseRadius = "0.35rem"
+buttonRadius = "0.35rem"
 showWidgetBorder = true
 showSidebarBorder = true
 chartCategoricalColors = [
-    "#009974",
-    "#4D81E7",
-    "#CF6A17",
-    "#10B981",
-    "#59886B",
-    "#A07D45",
-    "#2299DD",
-    "#ED1752",
+    "#F39200",
+    "#00C853",
+    "#42A5F5",
+    "#FF5252",
+    "#AB47BC",
+    "#26C6DA",
+    "#FFCA28",
+    "#8D6E63",
 ]
 
 [theme.sidebar]
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F5F5F4"
-borderColor = "#E3E6ED"
+backgroundColor = "#111111"
+secondaryBackgroundColor = "#1C1C1C"
+textColor = "#F5F5F5"
+primaryColor = "#F39200"
+borderColor = "#2A2A2A"
+linkColor = "#F39200"
+
+[theme.dark]
+primaryColor = "#F39200"
+backgroundColor = "#1A1A1A"
+secondaryBackgroundColor = "#242424"
+textColor = "#F5F5F5"
+linkColor = "#F39200"
+borderColor = "#333333"
+
+[theme.dark.sidebar]
+backgroundColor = "#111111"
+secondaryBackgroundColor = "#1C1C1C"
+textColor = "#F5F5F5"
+primaryColor = "#F39200"
+borderColor = "#2A2A2A"
+
+[theme.light]
+primaryColor = "#F39200"
+backgroundColor = "#1A1A1A"
+secondaryBackgroundColor = "#242424"
+textColor = "#F5F5F5"
+linkColor = "#F39200"
+borderColor = "#333333"
+
+[theme.light.sidebar]
+backgroundColor = "#111111"
+secondaryBackgroundColor = "#1C1C1C"
+textColor = "#F5F5F5"
+primaryColor = "#F39200"
+borderColor = "#2A2A2A"

@@ -23,15 +23,15 @@ services:
       - key: AUTH_PASSWORD_ALT
         sync: false
       - key: STREAMLIT_THEME_BASE
-        value: light
+        value: dark
       - key: STREAMLIT_THEME_PRIMARY_COLOR
-        value: "#009974"
+        value: "#F39200"
       - key: STREAMLIT_THEME_BACKGROUND_COLOR
-        value: "#F5F5F4"
+        value: "#1A1A1A"
       - key: STREAMLIT_THEME_SECONDARY_BACKGROUND_COLOR
-        value: "#FFFFFF"
+        value: "#242424"
       - key: STREAMLIT_THEME_TEXT_COLOR
-        value: "#293038"
+        value: "#F5F5F5"
       - key: SMTP_SERVER
         sync: false
       - key: SMTP_PORT

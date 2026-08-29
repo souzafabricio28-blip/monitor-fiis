@@ -12,9 +12,9 @@ cp .env.example .env
 streamlit run app.py --server.port=45217
 ```
 
-Tema claro no estilo Investidor10 em `.streamlit/config.toml`: fundo `#F5F5F4`,
-destaque verde `#009974`, cards de cotação/DY/P/VP/liquidez e fonte Inter.
-O dashboard carrega cotações em lote no Yahoo e reutiliza cache; scrape do
+Tema escuro no estilo Status Invest em `.streamlit/config.toml`: fundo `#1A1A1A`,
+destaque laranja `#F39200`, texto `#F5F5F5` e menu lateral carvão (nunca branco
+no branco). O dashboard carrega cotações em lote no Yahoo e reutiliza cache; scrape do
 Investidor10 (vacância, liquidez, cotistas, VP/cota, taxa de adm., variação 12M)
 roda em **Atualizar critérios** ou na página **Indicadores**.
 
@@ -73,8 +73,8 @@ Configure no painel do Render (nunca no Git):
 | `AUTH_PASSWORD` | senha com 12+ caracteres |
 | `TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID` | opcional |
 
-O tema claro (Investidor10) também pode ser reforçado com `STREAMLIT_THEME_*`
-(já listadas em `render.yaml`).
+O tema Status Invest (carvão + laranja) também pode ser reforçado com
+`STREAMLIT_THEME_*` (já listadas em `render.yaml`).
 
 Antes do próximo deploy público, rotacione a senha do Neon e o token da API do
 Render se já tiverem sido expostos.
