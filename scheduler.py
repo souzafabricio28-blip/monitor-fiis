@@ -108,14 +108,44 @@ def tarefa_atualizar_cotacoes():
 
 
 def tarefa_verificar_alertas():
-    """Tarefa: Verificar e enviar alertas"""
+    """Tarefa: Verificar e enviar alertas da watchlist (Telegram via env)."""
     print(f"\n🔔 [{datetime.now().strftime('%H:%M')}] Verificando alertas...")
-    
-    from fii_monitor import FIIMonitor
-    
-    monitor = FIIMonitor()
-    monitor.verificar_alertas()
-    
+
+    from db import DatabaseManager
+    from telegram_notifier import verificar_alertas_watchlist
+
+    db = DatabaseManager()
+    resultado = verificar_alertas_watchlist(db)
+    disparados = resultado.get("disparados") or []
+    enviados = resultado.get("enviados") or []
+    print(
+        f"Watchlist: {len(disparados)} no alvo, "
+        f"{len(enviados)} aviso(s) novo(s), "
+        f"{len(resultado.get('omitidos_dedup') or [])} já notificado(s)."
+    )
+    if not resultado.get("telegram_ok"):
+        print("Telegram inativo (faltam TELEGRAM_TOKEN/TELEGRAM_CHAT_ID ou foi desligado).")
+
+    try:
+        from portfolio import analisar_carteira
+        from queda_report import verificar_quedas_carteira
+
+        analise = analisar_carteira(db)
+        if "erro" not in analise:
+            rels = verificar_quedas_carteira(
+                db, analise.get("fiis") or [], enviar_telegram=True
+            )
+            print(f"Quedas ≥10%: {len(rels)} relatório(s).")
+    except Exception as exc:
+        print(f"Relatórios de queda ignorados: {exc}")
+
+    try:
+        from fii_monitor import FIIMonitor
+
+        FIIMonitor().verificar_alertas()
+    except Exception as exc:
+        print(f"Alertas da carteira (CLI) ignorados: {exc}")
+
     print(f"✅ [{datetime.now().strftime('%H:%M')}] Verificação concluída!")
 
 

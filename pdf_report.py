@@ -1,7 +1,8 @@
 """
-Gerador de relatórios PDF para FIIs
-Cria relatórios profissionais em PDF
+Gerador de relatórios PDF para FIIs.
 """
+
+from io import BytesIO
 
 from fpdf import FPDF
 from datetime import datetime
@@ -89,6 +90,8 @@ class FiiPDFReport:
             ("Total Investido", _moeda(dados.get('total_investido'))),
             ("Valor Atual (pode ser parcial)", _moeda(valor_atual)),
             ("Ganho de Capital", _moeda(lucro)),
+            ("Rentabilidade total (preco + proventos)", _moeda(dados.get("lucro_com_dividendos"))),
+            ("Rentabilidade total %", _percentual(dados.get("rentabilidade_com_dividendos"))),
             ("Projecao Mensal", _moeda(dados.get('projecao_renda_mensal'))),
             ("Proventos Registrados", _moeda(dados.get('proventos_registrados'))),
         ]
@@ -138,6 +141,7 @@ class FiiPDFReport:
                 ("Valor Investido", _moeda(fii.get('valor_investido'))),
                 ("Valor Atual", _moeda(fii.get('valor_atual'))),
                 ("Ganho de Capital", f"{_moeda(lucro)} ({_percentual(lucro_pct)})"),
+                ("Rentab. total", f"{_moeda(fii.get('lucro_com_dividendos'))} ({_percentual(fii.get('lucro_com_dividendos_pct'))})"),
                 ("DY Anual", _percentual(dy)),
                 ("Projecao Mensal", _moeda(fii.get('projecao_renda_mensal'))),
                 ("Proventos Registrados", _moeda(fii.get('proventos_registrados'))),
@@ -213,8 +217,23 @@ class FiiPDFReport:
         self.pdf.cell(0, 5, f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
 
 
-# Função para usar no fii_monitor.py
 def gerar_relatorio_pdf(dados: dict, nome_arquivo: str = None):
     """Função auxiliar para gerar relatório PDF"""
     report = FiiPDFReport()
     return report.criar_relatorio(dados, nome_arquivo)
+
+
+def gerar_relatorio_pdf_bytes(dados: dict) -> bytes:
+    """Gera o PDF em memória para download no dashboard."""
+    report = FiiPDFReport()
+    buf = BytesIO()
+    report.pdf.add_page()
+    report._adicionar_cabecalho()
+    report._adicionar_resumo(dados)
+    report._adicionar_detalhes(dados)
+    report._adicionar_composicao(dados)
+    report._adicionar_rodape()
+    raw = report.pdf.output(dest="S")
+    if isinstance(raw, str):
+        return raw.encode("latin-1")
+    return bytes(raw)

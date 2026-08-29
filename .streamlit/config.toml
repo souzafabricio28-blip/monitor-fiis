@@ -1,3 +1,6 @@
+[runner]
+fastReruns = true
+
 [server]
 headless = true
 address = "0.0.0.0"
@@ -6,3 +9,43 @@ enableXsrfProtection = true
 
 [browser]
 gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#6EE7B7"
+backgroundColor = "#08090D"
+secondaryBackgroundColor = "#13151C"
+textColor = "#F4F1EA"
+linkColor = "#6EE7B7"
+borderColor = "#2A2F3A"
+dataframeBorderColor = "#2A2F3A"
+dataframeHeaderBackgroundColor = "#181B24"
+codeBackgroundColor = "#12141A"
+codeTextColor = "#6EE7B7"
+font = "DM Sans:https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
+headingFont = "Outfit:https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+baseFontSize = 16
+headingFontSizes = ["2.05rem", "1.45rem", "1.2rem"]
+headingFontWeights = [700, 600, 600]
+metricValueFontSize = "1.55rem"
+metricValueFontWeight = 600
+baseRadius = "0.85rem"
+buttonRadius = "full"
+showWidgetBorder = true
+showSidebarBorder = true
+chartCategoricalColors = [
+    "#6EE7B7",
+    "#7DD3FC",
+    "#F5C16C",
+    "#F0A3B8",
+    "#A5B4FC",
+    "#FDBA74",
+    "#67E8F9",
+    "#FCA5A5",
+]
+
+[theme.sidebar]
+backgroundColor = "#0C0E14"
+secondaryBackgroundColor = "#181B24"
+borderColor = "#2A2F3A"

@@ -4,11 +4,18 @@ Normaliza a análise da carteira para HTML/PDF/Excel.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Dict, List
 
 from db import DatabaseManager
-from market_data import buscar_dados_completos
+from market_data import (
+    buscar_cotacoes_lote,
+    buscar_dados_completos,
+    calcular_dy,
+    dados_rapidos,
+    sincronizar_proventos,
+)
 
 
 def _quantidade_na_data(movimentos, data_pagamento: str) -> int:
@@ -22,19 +29,87 @@ def _quantidade_na_data(movimentos, data_pagamento: str) -> int:
     return max(quantidade, 0)
 
 
-def _proventos_registrados(db: DatabaseManager, ticker: str) -> float:
-    dividendos = db.obter_dividendos(ticker)
-    movimentos = db.obter_movimentacoes(ticker)
-    if dividendos.empty or movimentos.empty:
+def rentabilidade_total(valor_atual, proventos, investido):
+    """Lucro e % com preço + proventos registados. Cotação ausente continua N/D."""
+    if valor_atual is None or investido is None:
+        return None, None
+    try:
+        atual = float(valor_atual)
+        custo = float(investido)
+        recebido = float(proventos or 0)
+    except (TypeError, ValueError):
+        return None, None
+    if custo <= 0:
+        return None, None
+    lucro = atual + recebido - custo
+    return lucro, (lucro / custo) * 100
+
+
+def _proventos_de_frames(dividendos, movimentos, ticker: str) -> float:
+    if dividendos is None or getattr(dividendos, "empty", True):
+        return 0.0
+    if movimentos is None or getattr(movimentos, "empty", True):
+        return 0.0
+    divs = dividendos[dividendos["ticker"].astype(str).str.upper() == ticker]
+    movs = movimentos[movimentos["ticker"].astype(str).str.upper() == ticker]
+    if divs.empty or movs.empty:
         return 0.0
     return sum(
-        _quantidade_na_data(movimentos, row["data_pagamento"])
-        * float(row["valor_por_cota"])
-        for _, row in dividendos.iterrows()
+        _quantidade_na_data(movs, row["data_pagamento"]) * float(row["valor_por_cota"])
+        for _, row in divs.iterrows()
     )
 
 
-def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
+def _dy_por_cota_12m(dividendos, ticker: str):
+    if dividendos is None or getattr(dividendos, "empty", True):
+        return None
+    divs = dividendos[dividendos["ticker"].astype(str).str.upper() == ticker]
+    if divs.empty:
+        return None
+    total = float(divs["valor_por_cota"].sum())
+    return total if total > 0 else None
+
+
+def _proventos_registrados(db: DatabaseManager, ticker: str) -> float:
+    return _proventos_de_frames(db.obter_dividendos(ticker), db.obter_movimentacoes(ticker), ticker)
+
+
+def _cotacoes_em_paralelo(
+    tickers: List[str],
+    db: DatabaseManager,
+    max_idade_min: int = 20,
+) -> Dict[str, dict]:
+    """Cotações em lote (Yahoo). Sem Investidor10 e sem yf.info no caminho rápido."""
+    resultado: Dict[str, dict] = {}
+    pendentes: List[str] = []
+    vistos: List[str] = []
+    for ticker in tickers:
+        if ticker in vistos:
+            continue
+        vistos.append(ticker)
+        cached = db.get_cache(ticker, max_idade_min) if max_idade_min else None
+        if cached and "erro" not in cached and cached.get("preco_atual") is not None:
+            resultado[ticker] = cached
+        else:
+            pendentes.append(ticker)
+
+    if pendentes:
+        lote = buscar_cotacoes_lote(pendentes)
+        for ticker in pendentes:
+            cotacao = lote.get(ticker) or {}
+            preco = cotacao.get("preco_atual")
+            dados = dados_rapidos(ticker, preco=preco)
+            resultado[ticker] = dados
+            try:
+                db.set_cache(ticker, dados)
+                if preco is not None:
+                    db.salvar_cotacao(ticker, float(preco))
+            except Exception:
+                pass
+    return resultado
+
+
+def analisar_carteira(db: DatabaseManager | None = None, max_idade_min: int = 20) -> Dict:
     """Retorna dict com chaves compatíveis com PDF, Excel e dashboard."""
     db = db or DatabaseManager()
     carteira = db.obter_carteira()
@@ -54,19 +129,65 @@ def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
         "rendimento_anual": 0.0,
         "dy_medio": 0.0,
         "rentabilidade": 0.0,
-        "rentabilidade_com_dividendos": 0.0,
+        "rentabilidade_com_dividendos": None,
+        "lucro_com_dividendos": None,
         "fiis": [],
         "data_analise": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
+    tickers = [str(row["ticker"]).upper() for _, row in carteira.iterrows()]
+    dados_por_ticker = _cotacoes_em_paralelo(tickers, db, max_idade_min=max_idade_min)
+    dividendos = db.obter_dividendos(meses=12)
+    movimentos = db.obter_movimentacoes()
+
+    falta_dy = []
+    for ticker, dados in dados_por_ticker.items():
+        if dados.get("total_dividendos_12m") is not None and dados.get("dy") is not None:
+            continue
+        por_cota = _dy_por_cota_12m(dividendos, ticker)
+        preco = dados.get("preco_atual")
+        if por_cota is not None and preco:
+            dados["total_dividendos_12m"] = por_cota
+            dados["dy"] = por_cota / float(preco) * 100
+            dados["dy_mensal"] = dados["dy"] / 12
+        elif dados.get("dy") is None:
+            falta_dy.append(ticker)
+
+    if falta_dy:
+        workers = min(8, len(falta_dy))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            pares = list(
+                pool.map(
+                    lambda t: (t, calcular_dy(t, dados_por_ticker[t].get("preco_atual"))),
+                    falta_dy,
+                )
+            )
+        sincronizou = False
+        for ticker, dy_calc in pares:
+            if not dy_calc:
+                continue
+            dados_por_ticker[ticker]["dy"] = dy_calc["dy_anual"]
+            dados_por_ticker[ticker]["dy_mensal"] = dy_calc["dy_mensal"]
+            dados_por_ticker[ticker]["total_dividendos_12m"] = dy_calc["total_dividendos_12m"]
+            dados_por_ticker[ticker]["pagamentos"] = dy_calc.get("pagamentos") or []
+            try:
+                sincronizar_proventos(db, ticker, dados_por_ticker[ticker]["pagamentos"])
+                sincronizou = True
+            except Exception:
+                pass
+        if sincronizou:
+            dividendos = db.obter_dividendos(meses=12)
+
     for _, row in carteira.iterrows():
-        ticker = row["ticker"]
+        ticker = str(row["ticker"]).upper()
         quantidade = int(row["quantidade"])
         preco_compra = float(row["preco_compra"])
         valor_investido = quantidade * preco_compra
         analise["total_investido"] += valor_investido
 
-        dados = buscar_dados_completos(ticker, db=db)
+        dados = dados_por_ticker.get(ticker) or buscar_dados_completos(
+            ticker, db=db, incluir_fundamentos=False
+        )
         preco_valor = dados.get("preco_atual")
         preco_atual = float(preco_valor) if preco_valor is not None else None
         valor_atual = quantidade * preco_atual if preco_atual is not None else None
@@ -80,7 +201,10 @@ def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
         dy_anual = dados.get("dy")
         dy_mensal = dados.get("dy_mensal")
         div_12m = dados.get("total_dividendos_12m")
-        proventos = _proventos_registrados(db, ticker)
+        proventos = _proventos_de_frames(dividendos, movimentos, ticker)
+        lucro_total, lucro_total_pct = rentabilidade_total(
+            valor_atual, proventos, valor_investido
+        )
         projecao_mensal = (
             quantidade * float(div_12m) / 12 if div_12m is not None else None
         )
@@ -106,6 +230,8 @@ def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
             "lucro_pct": lucro_pct,
             "lucro_prejuizo": lucro,
             "lucro_prejuizo_pct": lucro_pct,
+            "lucro_com_dividendos": lucro_total,
+            "lucro_com_dividendos_pct": lucro_total_pct,
             "dy": dy_anual,
             "dy_anual": dy_anual,
             "dy_mensal": dy_mensal,
@@ -136,10 +262,16 @@ def analisar_carteira(db: DatabaseManager | None = None) -> Dict:
         analise["rentabilidade"] = (
             analise["lucro"] / analise["total_investido"]
         ) * 100
-        analise["rentabilidade_com_dividendos"] = (
-            (analise["total_atual"] + analise["total_recebido"] - analise["total_investido"])
-            / analise["total_investido"]
-        ) * 100
+        lucro_total_carteira, pct_total = rentabilidade_total(
+            analise["total_atual"],
+            analise["total_recebido"],
+            analise["total_investido"],
+        )
+        analise["lucro_com_dividendos"] = lucro_total_carteira
+        analise["rentabilidade_com_dividendos"] = pct_total
+    else:
+        analise["lucro_com_dividendos"] = None
+        analise["rentabilidade_com_dividendos"] = None
 
     return analise
 

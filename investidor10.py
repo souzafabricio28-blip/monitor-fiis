@@ -54,7 +54,7 @@ class Investidor10API:
         url = f"{self.base_url}{ticker.lower()}/"
 
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=8)
             response.raise_for_status()
             return self.parse_html(ticker, response.text, url)
         except Exception as e:

@@ -1,87 +1,82 @@
 # Monitor de FIIs
 
-Dashboard Streamlit + CLI para acompanhar carteira de FIIs brasileiros, com
-cotações (Yahoo Finance), dados do Investidor10, critérios do gestor e
+Dashboard Streamlit para acompanhar uma carteira de FIIs brasileiros: cotações
+(Yahoo Finance), dados do Investidor10, critérios do gestor, rebalanceamento e
 persistência em SQLite (local) ou PostgreSQL/Neon (produção).
 
-## Stack
-
-- `app.py` — dashboard web (Streamlit)
-- `main.py` — menu completo (dashboard, CLI, PDF, Excel, Telegram, agendador)
-- `fii_monitor.py` — monitor em terminal
-- `db.py` — banco unificado, movimentações e schema versionado (SQLite / Neon)
-- `market_data.py` — fonte única, DY timezone-safe, cache, confiança e divergências
-- `investidor10.py` — scraper único
-- `criterios.py` — regras de avaliação (Ricardo / RT Tintas)
-- `portfolio.py` — análise da carteira para PDF/Excel/HTML
-
-## Instalação
+## Rodar localmente
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+cp .env.example .env
+streamlit run app.py --server.port=45217
 ```
 
-Copie `.env.example` para `.env` e preencha `DATABASE_URL` se for usar Neon:
+Tema escuro vem de `.streamlit/config.toml`: fundo `#08090D`, destaque menta
+`#6EE7B7`, cantos arredondados, botões em pílula e fontes DM Sans / Outfit.
+O dashboard carrega cotações em lote no Yahoo e reutiliza cache; scrape do
+Investidor10 só roda em **Atualizar critérios** ou **Buscar ativo**.
+
+Fundos e ações ficam em abas no **Painel da carteira**: mix, treemap de
+alocação, ranking vs compra, peso de cada posição e diversificação por setor.
+
+Se definir `AUTH_PASSWORD`, o login aparece antes da carteira. Sem essa variável
+e sem Neon, o dashboard abre em modo local.
+
+No dashboard dá para baixar CSV, Excel e PDF da carteira. A rentabilidade total
+soma variação de preço e proventos registados (cotação ausente permanece N/D).
+A aba Carteira mostra o histórico de transações. A watchlist dispara Telegram
+quando o preço atinge o alvo (`TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID`). A
+preferência Mostrar/Ocultar valores fica gravada no banco. A aba **Quedas 10%**
+gera PDF com manchetes quando um ativo cai 10% ou mais; sem notícia o motivo
+é N/D.
+
+A diversificação usa o catálogo (mostra o que falta: shopping, empresarial,
+galpão) sem esperar o scrape. Os critérios partem do Yahoo Finance e da tabela
+de anos de listagem; Investidor10 só entra se você pedir **Atualizar critérios**.
+
+## Testes
 
 ```bash
-# Windows
-set DATABASE_URL=postgresql://USER:PASS@HOST/neondb?sslmode=require
+python -m pip install -r requirements-dev.txt
+python -m pytest
 ```
 
-## Uso
+## Produção (Render)
+
+Serviço em uso: `https://monitor-fiis-6dk7.onrender.com`
+
+Configure no painel (nunca no Git):
+
+| Variável | Uso |
+|----------|-----|
+| `DATABASE_URL` | Neon (`sslmode=require`) |
+| `AUTH_USER` | usuário personalizado (não `admin`) |
+| `AUTH_PASSWORD` | senha com 12+ caracteres |
+| `TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID` | opcional |
+
+O tema escuro também pode ser reforçado com `STREAMLIT_THEME_*` (já listadas em
+`render.yaml`).
+
+Antes do próximo deploy público, rotacione a senha do Neon e o token da API do
+Render se já tiverem sido expostos.
+
+## Critérios do gestor
+
+FIIs: DY mensal 0,60–1,50%, vacância ≤ 10%, P/VP 0,70–1,10, liquidez, +10 anos
+e diversificação entre galpão, shopping, empresarial e papel.
+
+Ações: P/VP vem do Fundamentus (VPA da B3). O Yahoo distorce P/B de PN
+(SAPR4, KLBN4). Dado ausente permanece N/D, nunca 0.
+
+FIIs com ticker “jovem” por troca de nome ou incorporação (XPLG11, HSML11,
+RZTR11, BTLG11) herdam a idade de bolsa da origem — não reprovam só pelo IPO
+do código atual.
+
+KNRI11 fica no setor **Empresarial** (catálogo curado), não como híbrido.
+
+Para um PDF resumido da lista do Ricardo (28/08/2026), sem tela no app:
 
 ```bash
-# Dashboard
-streamlit run app.py
-
-# Menu completo
-python main.py
-
-# CLI
-python fii_monitor.py
-
-# Atualização diária
-python fii_monitor.py --daily
-
-# Migrar SQLite -> Neon (sem senha no código)
-set DATABASE_URL=...
-set SQLITE_PATH=fii_data.db
-python migrate_db.py
+python gerar_pdf_lista_gestor.py
 ```
-
-## Deploy (Render)
-
-- `Procfile` e `render.yaml` sobem o Streamlit
-- Configure no painel do Render (nunca no Git):
-  - `DATABASE_URL` — Neon
-  - `AUTH_USER` / `AUTH_PASSWORD` — login do painel (obrigatório com Neon)
-- Antes do próximo deploy, rotacione manualmente a senha Neon e o token Render
-
-## Segurança (dados de negócio)
-
-- Repo **privado** no GitHub
-- Login com usuário/senha antes de ver carteira (`auth.py`)
-- Em produção (Postgres/Neon), sem `AUTH_PASSWORD` o app **não abre**
-- Bloqueio temporário após 5 tentativas erradas
-- Segredos só em variáveis de ambiente do Render / `.env` local
-- Tokens do Telegram nunca são armazenados no banco; somente variáveis de ambiente
-- Sessões expiram em 8 horas; XSRF e CORS ficam ativos
-- HTTPS pelo Render; Neon com `sslmode=require`
-
-Checklist rápido no Render → Environment:
-
-| Variável | Exemplo |
-|----------|---------|
-| `DATABASE_URL` | `postgresql://...sslmode=require` |
-| `AUTH_USER` | `seuusuario` |
-| `AUTH_PASSWORD` | senha longa e única |
-| `TELEGRAM_TOKEN` | (opcional) |
-| `TELEGRAM_CHAT_ID` | (opcional) |
-
-## Critérios do gestor (aba Critérios)
-
-FIIs: DY mensal 0,60–1,50%, vacância ≤ 10%, P/VP 0,70–1,10, liquidez,
-+10 anos, diversificar galpão/shopping/empresarial/papel.
-
-Ações: sem prejuízo 5 anos, liquidez, P/VP ≥ 0,60, +10 anos, dívida < PL,
-crescimento 10 anos.

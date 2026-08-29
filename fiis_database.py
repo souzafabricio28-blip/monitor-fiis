@@ -9,7 +9,7 @@ from typing import Optional
 FIIS_DATABASE = {
     "papel": [
         {"ticker": "MXRF11", "nome": "Maxi Renda", "setor": "Papel"},
-        {"ticker": "KNCR11", "nome": "Kinea Renda Imobiliária", "setor": "Papel"},
+        {"ticker": "KNCR11", "nome": "Kinea Rendimentos", "setor": "Papel"},
         {"ticker": "KNHY11", "nome": "Kinea High Yield", "setor": "Papel"},
         {"ticker": "CPTS11", "nome": "Capitânia Securities", "setor": "Papel"},
         {"ticker": "MCCI11", "nome": "Mauá Capital", "setor": "Papel"},
@@ -40,6 +40,7 @@ FIIS_DATABASE = {
         {"ticker": "RBRR11", "nome": "RBR Rendimento High Grade", "setor": "Híbrido"},
         {"ticker": "TRXF11", "nome": "TRX Real Estate", "setor": "Híbrido"},
         {"ticker": "HFOF11", "nome": "Hedge Top FOFII", "setor": "FOF"},
+        {"ticker": "RZTR11", "nome": "Riza Terrax", "setor": "Outro/Híbrido"},
     ],
 }
 

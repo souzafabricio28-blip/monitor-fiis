@@ -58,3 +58,36 @@ def test_token_telegram_legado_e_removido(tmp_path, monkeypatch):
     )
     db = DatabaseManager(db.db_path)
     assert db.get_config("telegram") == {"ativar": True}
+
+
+def test_excel_carteira_em_memoria():
+    from excel_export import exportar_carteira_bytes
+
+    dados = {
+        "total_investido": 100.0,
+        "valor_atual": 110.0,
+        "lucro": 10.0,
+        "projecao_renda_mensal": 1.0,
+        "proventos_registrados": 2.0,
+        "dy_medio": 8.0,
+        "fiis": [
+            {
+                "ticker": "MXRF11",
+                "quantidade": 10,
+                "preco_compra": 9.0,
+                "preco_atual": 9.5,
+                "valor_investido": 90.0,
+                "valor_atual": 95.0,
+                "lucro": 5.0,
+                "lucro_pct": 5.5,
+                "dy": 12.0,
+                "projecao_renda_mensal": 0.8,
+                "proventos_registrados": 1.2,
+                "fonte": "Yahoo Finance",
+                "confianca": "alta",
+                "status_dados": "ok",
+            }
+        ],
+    }
+    conteudo = exportar_carteira_bytes(dados)
+    assert conteudo[:2] == b"PK"

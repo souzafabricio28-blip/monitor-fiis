@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / ".env"
 RENDER_URL = "https://dashboard.render.com"
-SERVICE_URL = "https://monitor-fiis.onrender.com"
+SERVICE_URL = "https://monitor-fiis-6dk7.onrender.com"
 
 
 def _ler_env() -> dict[str, str]:
@@ -69,8 +69,8 @@ def main():
     print()
     print("3) Em Environment, adicione estas variaveis:")
     print(f"   AUTH_USER = {usuario}")
-    print(f"   AUTH_PASSWORD = {senha or '(sua senha principal)'}")
-    print("   AUTH_PASSWORD_ALT = 030990")
+    print(f"   AUTH_PASSWORD = {senha or '(sua senha principal, 12+ caracteres)'}")
+    print("   AUTH_PASSWORD_ALT = (opcional)")
     print("   APP_ENV = production")
     print("   DATABASE_URL = (connection string do Neon)")
     print()

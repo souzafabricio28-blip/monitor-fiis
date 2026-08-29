@@ -3,6 +3,8 @@ Exportação de dados para Excel
 Permite exportar dados de FIIs para planilhas Excel
 """
 
+from io import BytesIO
+
 import pandas as pd
 from datetime import datetime
 import os
@@ -53,6 +55,8 @@ class FiiExcelExport:
                 "Total Investido",
                 "Valor Atual",
                 "Ganho de Capital",
+                "Rentabilidade total (preço + proventos)",
+                "Rentabilidade total %",
                 "Projeção Mensal",
                 "Proventos Registrados",
                 "DY Médio",
@@ -62,6 +66,8 @@ class FiiExcelExport:
                 _fmt(dados.get('total_investido'), "R$ "),
                 _fmt(dados.get('valor_atual', dados.get('total_atual')), "R$ "),
                 _fmt(dados.get('lucro'), "R$ "),
+                _fmt(dados.get('lucro_com_dividendos'), "R$ "),
+                _fmt(dados.get('rentabilidade_com_dividendos'), sufixo="%"),
                 _fmt(dados.get('projecao_renda_mensal'), "R$ "),
                 _fmt(dados.get('proventos_registrados'), "R$ "),
                 _fmt(dados.get('dy_medio'), sufixo="%"),
@@ -96,6 +102,8 @@ class FiiExcelExport:
                 'Valor Atual': _fmt(fii.get('valor_atual'), "R$ "),
                 'Ganho de Capital': _fmt(lucro, "R$ "),
                 'Lucro %': _fmt(lucro_pct, sufixo="%"),
+                'Rentab. total': _fmt(fii.get('lucro_com_dividendos'), "R$ "),
+                'Rentab. total %': _fmt(fii.get('lucro_com_dividendos_pct'), sufixo="%"),
                 'DY': _fmt(dy, sufixo="%"),
                 'Projeção Mensal': _fmt(fii.get('projecao_renda_mensal'), "R$ "),
                 'Proventos Registrados': _fmt(fii.get('proventos_registrados'), "R$ "),
@@ -157,3 +165,14 @@ def exportar_para_excel(dados: dict, nome_arquivo: str = None):
     """Função auxiliar para exportar para Excel"""
     exporter = FiiExcelExport()
     return exporter.exportar_carteira(dados, nome_arquivo)
+
+
+def exportar_carteira_bytes(dados: dict) -> bytes:
+    """Gera o Excel em memória para download no dashboard."""
+    exporter = FiiExcelExport()
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        exporter._criar_df_resumo(dados).to_excel(writer, sheet_name="Resumo", index=False)
+        exporter._criar_df_detalhes(dados).to_excel(writer, sheet_name="Detalhes", index=False)
+        exporter._criar_df_dividendos(dados).to_excel(writer, sheet_name="Dividendos", index=False)
+    return buf.getvalue()

@@ -5,8 +5,9 @@ Dados de mercado via Yahoo Finance + Investidor10, com DY timezone-safe e cache.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
 import yfinance as yf
@@ -83,6 +84,14 @@ def calcular_dy(ticker: str, preco: Optional[float] = None) -> Optional[Dict]:
             return None
 
         dy_anual = (total / preco) * 100
+        pagamentos = [
+            {
+                "data": idx.strftime("%Y-%m-%d"),
+                "valor": float(val),
+            }
+            for idx, val in recentes.items()
+            if float(val) > 0
+        ]
         return {
             "ticker": ticker.upper().replace(".SA", ""),
             "dy_anual": dy_anual,
@@ -91,6 +100,7 @@ def calcular_dy(ticker: str, preco: Optional[float] = None) -> Optional[Dict]:
             "preco_atual": preco,
             "data_calculo": _agora_iso(),
             "fonte": "Yahoo Finance (proventos 12m)",
+            "pagamentos": pagamentos,
         }
     except Exception as exc:
         logger.warning("Falha ao calcular DY de %s: %s", ticker, exc)
@@ -125,6 +135,128 @@ def buscar_cotacao(ticker: str) -> Optional[Dict]:
         return None
 
 
+def limpar_cache_memoria() -> None:
+    _mem_cache.clear()
+
+
+def _tickers_unicos(tickers: Iterable[str]) -> List[str]:
+    vistos: List[str] = []
+    for ticker in tickers:
+        limpo = (ticker or "").upper().replace(".SA", "").strip()
+        if limpo and limpo not in vistos:
+            vistos.append(limpo)
+    return vistos
+
+
+def _close_de_historico(hist: pd.DataFrame, simbolo: str, unico: bool = False) -> Optional[float]:
+    if hist is None or getattr(hist, "empty", True):
+        return None
+    try:
+        if unico or not isinstance(hist.columns, pd.MultiIndex):
+            if "Close" in hist.columns:
+                serie = hist["Close"].dropna()
+                if not serie.empty:
+                    return float(serie.iloc[-1])
+        candidatos = (simbolo, simbolo.replace(".SA", ""), f"{simbolo.replace('.SA', '')}.SA")
+        for cand in candidatos:
+            chave = (cand, "Close")
+            if isinstance(hist.columns, pd.MultiIndex) and chave in hist.columns:
+                serie = hist[chave].dropna()
+                if not serie.empty:
+                    return float(serie.iloc[-1])
+            chave_inv = ("Close", cand)
+            if isinstance(hist.columns, pd.MultiIndex) and chave_inv in hist.columns:
+                serie = hist[chave_inv].dropna()
+                if not serie.empty:
+                    return float(serie.iloc[-1])
+            if isinstance(hist.columns, pd.MultiIndex):
+                nivel0 = list(hist.columns.get_level_values(0))
+                if cand in nivel0 and "Close" in hist[cand].columns:
+                    serie = hist[cand]["Close"].dropna()
+                    if not serie.empty:
+                        return float(serie.iloc[-1])
+    except Exception:
+        return None
+    return None
+
+
+def buscar_cotacoes_lote(tickers: Iterable[str]) -> Dict[str, dict]:
+    """Uma chamada Yahoo para vários tickers; fallback individual só no que faltar."""
+    limpos = _tickers_unicos(tickers)
+    if not limpos:
+        return {}
+    simbolos = [f"{t}.SA" for t in limpos]
+    saida: Dict[str, dict] = {}
+    try:
+        hist = yf.download(
+            tickers=simbolos if len(simbolos) > 1 else simbolos[0],
+            period="5d",
+            auto_adjust=True,
+            threads=True,
+            progress=False,
+        )
+        for ticker, simbolo in zip(limpos, simbolos):
+            preco = _close_de_historico(hist, simbolo, unico=len(limpos) == 1)
+            if preco is None:
+                continue
+            saida[ticker] = {
+                "ticker": ticker,
+                "preco_atual": preco,
+                "preco": preco,
+                "fonte": "Yahoo Finance",
+                "coletado_em": _agora_iso(),
+            }
+    except Exception as exc:
+        logger.warning("Falha no download em lote do Yahoo: %s", exc)
+
+    faltando = [t for t in limpos if t not in saida]
+    if faltando:
+        workers = min(8, len(faltando))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            pares = list(zip(faltando, pool.map(buscar_cotacao, faltando)))
+        for ticker, cotacao in pares:
+            if cotacao:
+                saida[ticker] = cotacao
+    return saida
+
+
+def dados_rapidos(
+    ticker: str,
+    preco: Optional[float] = None,
+    dy: Optional[float] = None,
+    dy_mensal: Optional[float] = None,
+    total_dividendos_12m: Optional[float] = None,
+) -> Dict:
+    """Monta o payload do dashboard sem scrape e sem yf.Ticker.info."""
+    ticker = ticker.upper().replace(".SA", "").strip()
+    agora = datetime.now()
+    dados: Dict = {
+        "ticker": ticker,
+        "nome": ticker,
+        "preco_atual": preco,
+        "preco": preco,
+        "dy": dy,
+        "dy_mensal": dy_mensal,
+        "total_dividendos_12m": total_dividendos_12m,
+        "p_vp": None,
+        "patrimonio": None,
+        "vacancia": None,
+        "setor": None,
+        "qualidade": {},
+        "divergencias": [],
+        "coletado_em": _agora_iso(),
+        "horario_dados": agora.strftime("%d/%m/%Y %H:%M:%S"),
+        "fonte": "Yahoo Finance",
+        "status_geral": "parcial" if preco is not None or dy is not None else "indisponivel",
+        "confianca": "media" if preco is not None else "baixa",
+    }
+    if preco is not None:
+        _registrar_meta(dados, "preco_atual", preco, "Yahoo Finance", confianca="alta")
+    if dy is not None:
+        _registrar_meta(dados, "dy", dy, "Yahoo Finance (proventos 12m)", confianca="alta")
+    return dados
+
+
 def buscar_historico(ticker: str, periodo: str = "3mo") -> Optional[pd.DataFrame]:
     try:
         return yf.Ticker(f"{ticker.upper().replace('.SA', '')}.SA").history(period=periodo)
@@ -142,15 +274,47 @@ def buscar_dividendos_serie(ticker: str) -> Optional[pd.Series]:
         return None
 
 
-def buscar_dados_completos(ticker: str, db=None, usar_cache: bool = True) -> Dict:
-    """Fonte única de mercado, com proveniência, N/D e validação cruzada."""
+def sincronizar_proventos(db, ticker: str, pagamentos: Optional[list] = None) -> int:
+    """Grava pagamentos de proventos no banco (idempotente por data)."""
+    if db is None:
+        return 0
+    ticker = ticker.upper().replace(".SA", "").strip()
+    if pagamentos is None:
+        serie = buscar_dividendos_serie(ticker)
+        if serie is None or serie.empty:
+            return 0
+        limite = pd.Timestamp((datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d"))
+        recentes = serie[serie.index >= limite]
+        pagamentos = [
+            {"data": idx.strftime("%Y-%m-%d"), "valor": float(val)}
+            for idx, val in recentes.items()
+            if float(val) > 0
+        ]
+    gravados = 0
+    for item in pagamentos:
+        try:
+            db.salvar_dividendo(ticker, item["data"], float(item["valor"]))
+            gravados += 1
+        except Exception as exc:
+            logger.warning("Falha ao gravar provento de %s: %s", ticker, exc)
+    return gravados
+
+
+def buscar_dados_completos(
+    ticker: str,
+    db=None,
+    usar_cache: bool = True,
+    incluir_fundamentos: bool = True,
+) -> Dict:
+    """Fonte de mercado. Dashboard usa incluir_fundamentos=False (sem scrape)."""
     ticker = ticker.upper().replace(".SA", "").strip()
 
     if usar_cache and db is not None:
         cached = db.get_cache(ticker, CACHE_MINUTES)
         if cached and "erro" not in cached:
-            cached["fonte_cache"] = "banco"
-            return cached
+            if incluir_fundamentos or cached.get("preco_atual") is not None:
+                cached["fonte_cache"] = "banco"
+                return cached
 
     agora = datetime.now()
     if usar_cache and ticker in _mem_cache:
@@ -192,15 +356,6 @@ def buscar_dados_completos(ticker: str, db=None, usar_cache: bool = True) -> Dic
             dados, "preco_atual", None, "Yahoo Finance", confianca="baixa", status="indisponivel"
         )
 
-    try:
-        info = yf.Ticker(f"{ticker}.SA").info or {}
-        dados["nome"] = info.get("longName") or info.get("shortName") or ticker
-        dados["moeda"] = info.get("currency") or "BRL"
-        if info.get("sector"):
-            _registrar_meta(dados, "setor", info["sector"], "Yahoo Finance", confianca="baixa")
-    except Exception as exc:
-        logger.warning("Falha nos metadados Yahoo de %s: %s", ticker, exc)
-
     dy_calc = calcular_dy(ticker, dados.get("preco_atual"))
     if dy_calc:
         _registrar_meta(
@@ -208,6 +363,9 @@ def buscar_dados_completos(ticker: str, db=None, usar_cache: bool = True) -> Dic
         )
         dados["dy_mensal"] = dy_calc["dy_mensal"]
         dados["total_dividendos_12m"] = dy_calc["total_dividendos_12m"]
+        dados["pagamentos"] = dy_calc.get("pagamentos") or []
+        if db is not None:
+            sincronizar_proventos(db, ticker, dados["pagamentos"])
     else:
         _registrar_meta(
             dados,
@@ -218,52 +376,60 @@ def buscar_dados_completos(ticker: str, db=None, usar_cache: bool = True) -> Dic
             status="indisponivel",
         )
 
-    inv = _api.buscar_fii(ticker)
-    if "erro" not in inv:
-        fontes.append("Investidor10")
-        dados["nome"] = inv.get("nome") or dados["nome"]
-        for campo in ("p_vp", "patrimonio", "vacancia", "setor"):
-            valor = inv.get(campo)
-            if valor is not None:
-                _registrar_meta(dados, campo, valor, "Investidor10", confianca="media")
-            elif dados.get(campo) is None:
-                _registrar_meta(
-                    dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
-                )
+    if incluir_fundamentos:
+        try:
+            info = yf.Ticker(f"{ticker}.SA").info or {}
+            dados["nome"] = info.get("longName") or info.get("shortName") or ticker
+            dados["moeda"] = info.get("currency") or "BRL"
+            if info.get("sector"):
+                _registrar_meta(dados, "setor", info["sector"], "Yahoo Finance", confianca="baixa")
+        except Exception as exc:
+            logger.warning("Falha nos metadados Yahoo de %s: %s", ticker, exc)
 
-        preco_inv = inv.get("preco")
-        if dados.get("preco_atual") is None and preco_inv is not None:
-            _registrar_meta(
-                dados, "preco_atual", preco_inv, "Investidor10", confianca="baixa"
-            )
-            dados["preco"] = preco_inv
-        div_preco = _divergencia_percentual(dados.get("preco_atual"), preco_inv)
-        div_dy = _divergencia_percentual(dados.get("dy"), inv.get("dy"))
-        for indicador, divergencia in (("preco_atual", div_preco), ("dy", div_dy)):
-            if divergencia is not None:
-                dados["qualidade"][indicador]["divergencia_pct"] = round(divergencia, 2)
-                if divergencia > LIMITE_DIVERGENCIA:
-                    dados["qualidade"][indicador]["status"] = "divergente"
-                    dados["qualidade"][indicador]["confianca"] = "baixa"
-                    dados["divergencias"].append(
-                        f"{indicador}: fontes divergem {divergencia:.1f}%"
+        inv = _api.buscar_fii(ticker)
+        if "erro" not in inv:
+            fontes.append("Investidor10")
+            dados["nome"] = inv.get("nome") or dados["nome"]
+            for campo in ("p_vp", "patrimonio", "vacancia", "setor"):
+                valor = inv.get(campo)
+                if valor is not None:
+                    _registrar_meta(dados, campo, valor, "Investidor10", confianca="media")
+                elif dados.get(campo) is None:
+                    _registrar_meta(
+                        dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
                     )
-        dados["dy_investidor10"] = inv.get("dy")
-    else:
-        dados["erro_investidor10"] = inv.get("erro")
-        for campo in ("p_vp", "patrimonio", "vacancia"):
-            if campo not in dados["qualidade"]:
+
+            preco_inv = inv.get("preco")
+            if dados.get("preco_atual") is None and preco_inv is not None:
                 _registrar_meta(
-                    dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
+                    dados, "preco_atual", preco_inv, "Investidor10", confianca="baixa"
                 )
+                dados["preco"] = preco_inv
+            div_preco = _divergencia_percentual(dados.get("preco_atual"), preco_inv)
+            div_dy = _divergencia_percentual(dados.get("dy"), inv.get("dy"))
+            for indicador, divergencia in (("preco_atual", div_preco), ("dy", div_dy)):
+                if divergencia is not None and indicador in dados.get("qualidade", {}):
+                    dados["qualidade"][indicador]["divergencia_pct"] = round(divergencia, 2)
+                    if divergencia > LIMITE_DIVERGENCIA:
+                        dados["qualidade"][indicador]["status"] = "divergente"
+                        dados["qualidade"][indicador]["confianca"] = "baixa"
+                        dados["divergencias"].append(
+                            f"{indicador}: fontes divergem {divergencia:.1f}%"
+                        )
+            dados["dy_investidor10"] = inv.get("dy")
+        else:
+            dados["erro_investidor10"] = inv.get("erro")
+            for campo in ("p_vp", "patrimonio", "vacancia"):
+                if campo not in dados["qualidade"]:
+                    _registrar_meta(
+                        dados, campo, None, "Investidor10", confianca="baixa", status="indisponivel"
+                    )
 
     dados["fonte"] = " + ".join(dict.fromkeys(fontes)) or "fontes indisponíveis"
-    disponiveis = sum(
-        dados.get(campo) is not None
-        for campo in ("preco_atual", "dy", "p_vp", "patrimonio", "vacancia")
-    )
+    campos_ok = ("preco_atual", "dy", "p_vp", "patrimonio", "vacancia") if incluir_fundamentos else ("preco_atual", "dy")
+    disponiveis = sum(dados.get(campo) is not None for campo in campos_ok)
     dados["status_geral"] = (
-        "ok" if disponiveis == 5 and not dados["divergencias"]
+        "ok" if disponiveis == len(campos_ok) and not dados["divergencias"]
         else "parcial" if disponiveis
         else "indisponivel"
     )
