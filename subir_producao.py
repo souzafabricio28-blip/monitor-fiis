@@ -83,6 +83,21 @@ def copiar_arvore(origem: Path, destino: Path, caminhos: list[str]) -> None:
         shutil.copy2(src, dst)
 
 
+def remover_arquivos_obsoletos(destino: Path, caminhos: list[str]) -> None:
+    """Apaga no clone do GitHub o que saiu do repo (ex.: telegram_notifier.py)."""
+    manter = {c.replace("\\", "/") for c in caminhos if not _caminho_proibido(c)}
+    for path in destino.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(destino).as_posix()
+        if rel.startswith(".git/") or rel == ".git":
+            continue
+        if rel.startswith(".github/workflows/"):
+            continue
+        if rel not in manter:
+            path.unlink()
+
+
 def garantir_commit_local(raiz: Path) -> None:
     status = subprocess.check_output(
         ["git", "-C", str(raiz), "status", "--porcelain"],
@@ -118,6 +133,7 @@ def publicar_github(token: str, mensagem: str) -> str:
             check=True,
         )
         copiar_arvore(ROOT, destino, arquivos_para_github(ROOT))
+        remover_arquivos_obsoletos(destino, arquivos_para_github(ROOT))
         subprocess.run(["git", "-C", str(destino), "add", "-A"], check=True)
         staged = subprocess.check_output(
             ["git", "-C", str(destino), "diff", "--cached", "--name-only"],
