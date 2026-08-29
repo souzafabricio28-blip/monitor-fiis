@@ -30,12 +30,30 @@ def telefone_destino() -> str:
     return normalizar_telefone(os.environ.get("WHATSAPP_PHONE") or NUMERO_PADRAO)
 
 
-def _apikey() -> str:
+def _apikey_env() -> str:
     return (os.environ.get("WHATSAPP_APIKEY") or os.environ.get("CALLMEBOT_APIKEY") or "").strip()
 
 
+def aplicar_segredo_whatsapp(db=None) -> str:
+    """Usa WHATSAPP_APIKEY do ambiente; se faltar, lê a apikey salva no banco."""
+    chave = _apikey_env()
+    if chave:
+        return chave
+    if db is None:
+        return ""
+    cfg = db.get_config("whatsapp") or {}
+    chave = str(cfg.get("apikey") or "").strip()
+    if chave:
+        os.environ["WHATSAPP_APIKEY"] = chave
+    return chave
+
+
+def _apikey(db=None) -> str:
+    return aplicar_segredo_whatsapp(db)
+
+
 def whatsapp_configurado(db=None) -> bool:
-    if not _apikey():
+    if not aplicar_segredo_whatsapp(db):
         return False
     if db is None:
         return True

@@ -45,7 +45,7 @@ Não dá para “instalar o ChatGPT” no Render sem uma chave e um processo aco
 3. Com `WHATSAPP_APIKEY`, o relatório vai no WhatsApp (+55 11 97367-4455).
 4. Com `OPENROUTER_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY`, um modelo resume o relatório. Sem chave, só regras (site fora, queda 10%, watchlist, proventos zerados). Chave `sk-or-…` vai para o OpenRouter, não para a API da OpenAI.
 
-Ative o CallMeBot **uma vez**: no WhatsApp, adicione o contato **+34 644 66 12 43**, envie `I allow callmebot to send me messages`, copie a apikey e coloque em `WHATSAPP_APIKEY` no `.env` e no Render. Sem essa chave o servidor não consegue mandar mensagem.
+Ative o CallMeBot **uma vez**: no WhatsApp, adicione o contato **+34 623 76 13 63**, envie `I allow callmebot to send me messages`, copie a apikey e coloque em `WHATSAPP_APIKEY` no `.env` e no Render. Sem essa chave o servidor não consegue mandar mensagem. Se já ativou e perdeu a chave, mande `Recover APIKey` para o mesmo contato.
 
 Outro caminho: no Cursor, crie uma **Automação agendada** pedindo para checar o site, o health e te avisar. Isso usa o agente da conversa, não um modelo dentro do Render.
 

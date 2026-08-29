@@ -60,13 +60,13 @@ def test_token_telegram_legado_e_removido(tmp_path, monkeypatch):
     assert db.get_config("telegram") == {"ativar": True}
 
 
-def test_apikey_whatsapp_nao_fica_no_banco(tmp_path, monkeypatch):
+def test_apikey_whatsapp_fica_no_banco_sem_telefone(tmp_path, monkeypatch):
     db = _db_local(tmp_path, monkeypatch)
     db.set_config(
-        "whatsapp", {"ativar": True, "apikey": "nao-pode-ficar", "phone": "11973674455"}
+        "whatsapp", {"ativar": True, "apikey": "chave-teste", "phone": "11973674455"}
     )
     db = DatabaseManager(db.db_path)
-    assert db.get_config("whatsapp") == {"ativar": True}
+    assert db.get_config("whatsapp") == {"ativar": True, "apikey": "chave-teste"}
 
 
 def test_excel_carteira_em_memoria():

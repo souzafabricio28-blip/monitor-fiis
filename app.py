@@ -9,10 +9,12 @@ import json
 import os
 from datetime import datetime
 
+from pathlib import Path
+
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent / ".env")
 except ImportError:
     pass
 
@@ -41,7 +43,7 @@ from queda_report import (
 from rebalanceamento import registrar_plano_no_banco
 from scoring import calcular_score
 from seed_local import garantir_carteira_local, garantir_plano_local
-from whatsapp_notifier import verificar_alertas_watchlist
+from whatsapp_notifier import aplicar_segredo_whatsapp, verificar_alertas_watchlist
 from ui_theme import aplicar_plotly, cabecalho_ativo, grafico as _grafico, logo_app, pagina
 
 st.set_page_config(
@@ -176,6 +178,7 @@ def main():
             st.error("Erro ao conectar no banco. Verifique DATABASE_URL no ambiente.")
             st.caption(str(e))
             st.stop()
+    aplicar_segredo_whatsapp(st.session_state.db)
     if not st.session_state.get("_plano_local_ok"):
         garantir_plano_local(st.session_state.db)
         st.session_state["_plano_local_ok"] = True
@@ -1248,15 +1251,15 @@ def exibir_comparacao():
 def exibir_configuracoes():
     pagina("Configurações", "Segredos ficam só no ambiente. Nada de senha ou token no Git.")
     st.info(
-        "Segredos (senha do app, DATABASE_URL, tokens) ficam só no Render/Neon — "
-        "nunca no Git. Alertas vão no WhatsApp +55 11 97367-4455 "
-        "(WHATSAPP_APIKEY no ambiente). O agendador avisa watchlist e o vigia."
+        "Alertas vão no WhatsApp +55 11 97367-4455. Cole a apikey do CallMeBot abaixo "
+        "se o servidor (Render) ainda não tiver WHATSAPP_APIKEY."
     )
     db = st.session_state.db
     cfg_email = db.get_config("email", {"ativar": False, "destino": ""})
     cfg_wa = db.get_config("whatsapp", {"ativar": True}) or {"ativar": True}
     cfg_agenda = db.get_config("agendamento", {"horario": "18:00"})
 
+    aplicar_segredo_whatsapp(db)
     wa_key = bool(os.environ.get("WHATSAPP_APIKEY") or os.environ.get("CALLMEBOT_APIKEY"))
 
     st.subheader("Alertas por Email")
@@ -1273,21 +1276,32 @@ def exibir_configuracoes():
     st.subheader("WhatsApp")
     st.caption("Destino fixo: +55 11 97367-4455. O Telegram foi removido.")
     if wa_key:
-        st.success("WHATSAPP_APIKEY detectada no ambiente. Alertas saem para esse número.")
+        st.success("Apikey detectada. Alertas saem para esse número.")
     else:
         st.warning(
-            "O WhatsApp não deixa o servidor mandar mensagem só com o número. "
-            "Uma vez: no WhatsApp, adicione o contato CallMeBot (+34 644 66 12 43), "
-            "envie “I allow callmebot to send me messages”, copie a apikey e coloque "
-            "WHATSAPP_APIKEY no .env / Render."
+            "Cole a apikey que o CallMeBot mandou (já ativado no +55 11 97367-4455) "
+            "e clique em Salvar WhatsApp. Sem isso o servidor não envia."
         )
     with st.form("config_whatsapp"):
         ativar_wa = st.checkbox("Ativar WhatsApp", value=bool(cfg_wa.get("ativar", True)))
+        apikey_nova = st.text_input(
+            "Apikey do CallMeBot",
+            type="password",
+            placeholder="Cole aqui se a caixa amarela ainda aparecer",
+        )
         if st.form_submit_button("Salvar WhatsApp"):
-            if ativar_wa and not wa_key:
-                st.error("Falta WHATSAPP_APIKEY no ambiente; o envio ainda não liga.")
-            db.set_config("whatsapp", {"ativar": ativar_wa})
-            st.success("Preferência WhatsApp salva. A apikey não entra no banco.")
+            payload = {"ativar": ativar_wa}
+            atual = db.get_config("whatsapp") or {}
+            chave = (apikey_nova or "").strip() or str(atual.get("apikey") or "").strip()
+            if chave:
+                payload["apikey"] = chave
+                os.environ["WHATSAPP_APIKEY"] = chave
+            db.set_config("whatsapp", payload)
+            if ativar_wa and not (os.environ.get("WHATSAPP_APIKEY") or chave):
+                st.error("Falta a apikey. Cole o número que o CallMeBot enviou e salve de novo.")
+            else:
+                st.success("WhatsApp ligado. Alertas no +55 11 97367-4455.")
+                st.rerun()
 
     st.subheader("Agendamento (referência)")
     with st.form("config_agendamento"):

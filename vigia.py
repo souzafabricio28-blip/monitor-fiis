@@ -190,10 +190,11 @@ def resumir_com_ia(relatorio: str) -> str | None:
         return None
 
 
-def enviar_whatsapp_vigia(texto: str) -> bool:
-    from whatsapp_notifier import enviar_alerta, whatsapp_configurado
+def enviar_whatsapp_vigia(texto: str, db=None) -> bool:
+    from whatsapp_notifier import aplicar_segredo_whatsapp, enviar_alerta, whatsapp_configurado
 
-    if not whatsapp_configurado():
+    aplicar_segredo_whatsapp(db)
+    if not whatsapp_configurado(db):
         return False
     return enviar_alerta("Vigia do app", texto, tipo="aviso")
 
@@ -202,6 +203,7 @@ def rodar_vigia(db=None, enviar: bool = True, url: str | None = None) -> dict:
     from db import DatabaseManager
 
     saude = checar_saude(url)
+    banco = None
     try:
         banco = db or DatabaseManager()
         carteira = analisar_carteira_vigia(banco)
@@ -218,7 +220,7 @@ def rodar_vigia(db=None, enviar: bool = True, url: str | None = None) -> dict:
     texto = f"{ia}\n\n---\n{relatorio}" if ia else relatorio
     whatsapp = False
     if enviar:
-        whatsapp = enviar_whatsapp_vigia(texto)
+        whatsapp = enviar_whatsapp_vigia(texto, banco)
     return {
         "saude": saude,
         "carteira": carteira,

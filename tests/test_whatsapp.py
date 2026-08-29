@@ -27,6 +27,20 @@ def test_whatsapp_configurado_exige_chave(monkeypatch):
     assert whatsapp_configurado() is True
 
 
+def test_apikey_do_banco_quando_env_vazio(tmp_path, monkeypatch):
+    import db as db_module
+    from db import DatabaseManager
+    from whatsapp_notifier import aplicar_segredo_whatsapp
+
+    monkeypatch.delenv("WHATSAPP_APIKEY", raising=False)
+    monkeypatch.delenv("CALLMEBOT_APIKEY", raising=False)
+    monkeypatch.setattr(db_module, "USE_POSTGRES", False)
+    monkeypatch.setattr(db_module, "DATABASE_URL", None)
+    db = DatabaseManager(str(tmp_path / "wa.db"))
+    db.set_config("whatsapp", {"ativar": True, "apikey": "do-banco"})
+    assert aplicar_segredo_whatsapp(db) == "do-banco"
+
+
 def test_enviar_whatsapp_sem_chave_nao_chama_rede(monkeypatch):
     monkeypatch.delenv("WHATSAPP_APIKEY", raising=False)
     monkeypatch.delenv("CALLMEBOT_APIKEY", raising=False)

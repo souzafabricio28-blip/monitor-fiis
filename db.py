@@ -326,7 +326,7 @@ class DatabaseManager:
             self._migrate_sqlite_if_needed()
 
     def _sanitizar_configuracoes(self):
-        """Remove segredos (token Telegram legado, apikey WhatsApp) do banco."""
+        """Remove token Telegram legado do banco. Apikey WhatsApp pode ficar (só envio para o próprio número)."""
         conn = self._get_conn()
         cur = conn.cursor()
         for chave, padrao_ativar in (("telegram", False), ("whatsapp", True)):
@@ -343,10 +343,12 @@ class DatabaseManager:
                 atual = {}
             if not isinstance(atual, dict):
                 atual = {}
-            seguro = json.dumps(
-                {"ativar": bool(atual.get("ativar", padrao_ativar))},
-                ensure_ascii=False,
-            )
+            dados = {"ativar": bool(atual.get("ativar", padrao_ativar))}
+            if chave == "whatsapp":
+                apikey = str(atual.get("apikey") or "").strip()
+                if apikey:
+                    dados["apikey"] = apikey
+            seguro = json.dumps(dados, ensure_ascii=False)
             if self.use_pg:
                 cur.execute(
                     "UPDATE configuracoes SET valor = %s WHERE chave = %s",
