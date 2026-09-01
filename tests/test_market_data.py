@@ -103,9 +103,29 @@ def test_buscar_cotacoes_lote_usa_download(monkeypatch):
         return hist
 
     monkeypatch.setattr(market_data.yf, "download", _download)
+    monkeypatch.setattr(market_data, "_cotacao_do_investidor10", lambda _t: None)
     lote = market_data.buscar_cotacoes_lote(["MXRF11", "PETR4"])
     assert lote["MXRF11"]["preco_atual"] == 10.0
     assert lote["PETR4"]["preco_atual"] == 40.0
+
+
+def test_lote_prefere_cotacao_investidor10(monkeypatch):
+    monkeypatch.setattr(
+        market_data,
+        "_cotacao_do_investidor10",
+        lambda ticker: {
+            "ticker": ticker,
+            "preco_atual": 13.57,
+            "preco": 13.57,
+            "fonte": "Investidor10",
+            "dy": 8.43,
+        },
+    )
+    saida = {"ITSA3": {"preco_atual": 1.35, "fonte": "Yahoo Finance"}}
+    market_data._aplicar_cotacoes_investidor10(saida, ["ITSA3"])
+    assert saida["ITSA3"]["preco_atual"] == 13.57
+    assert saida["ITSA3"]["fonte"] == "Investidor10"
+    assert saida["ITSA3"]["preco_yahoo"] == 1.35
 
 
 def test_cotacao_usa_ultimo_close_valido(monkeypatch):

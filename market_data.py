@@ -237,7 +237,52 @@ def buscar_cotacoes_lote(tickers: Iterable[str]) -> Dict[str, dict]:
         for ticker, cotacao in pares:
             if cotacao:
                 saida[ticker] = cotacao
+    _aplicar_cotacoes_investidor10(saida, limpos)
     return saida
+
+
+def _cotacao_do_investidor10(ticker: str) -> Optional[Dict]:
+    """Cotação pública do Investidor10. Falha de rede não derruba o lote."""
+    try:
+        inv = _api.buscar_ativo(ticker)
+    except Exception as exc:
+        logger.warning("Falha no Investidor10 de %s: %s", ticker, exc)
+        return None
+    if not inv or inv.get("erro"):
+        return None
+    preco = numero_valido(inv.get("preco"))
+    if preco is None:
+        return None
+    return {
+        "ticker": ticker.upper().replace(".SA", "").strip(),
+        "preco_atual": preco,
+        "preco": preco,
+        "variacao_dia": inv.get("variacao_dia"),
+        "dy": inv.get("dy"),
+        "p_l": inv.get("p_l"),
+        "p_vp": inv.get("p_vp"),
+        "fonte": "Investidor10",
+        "url_investidor10": inv.get("url"),
+        "coletado_em": _agora_iso(),
+    }
+
+
+def _aplicar_cotacoes_investidor10(saida: Dict[str, dict], tickers: List[str]) -> None:
+    """Investidor10 prevalece sobre o Yahoo quando a cotação existe."""
+    if not tickers:
+        return
+    workers = min(8, len(tickers))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pares = list(zip(tickers, pool.map(_cotacao_do_investidor10, tickers)))
+    for ticker, inv in pares:
+        if not inv:
+            continue
+        atual = dict(saida.get(ticker) or {})
+        yahoo = numero_valido(atual.get("preco_atual"))
+        if yahoo is not None:
+            atual["preco_yahoo"] = yahoo
+        atual.update(inv)
+        saida[ticker] = atual
 
 
 def dados_rapidos(
@@ -246,8 +291,9 @@ def dados_rapidos(
     dy: Optional[float] = None,
     dy_mensal: Optional[float] = None,
     total_dividendos_12m: Optional[float] = None,
+    fonte: str = "Investidor10",
 ) -> Dict:
-    """Monta o payload do dashboard sem scrape e sem yf.Ticker.info."""
+    """Monta o payload do dashboard sem scrape completo e sem yf.Ticker.info."""
     ticker = ticker.upper().replace(".SA", "").strip()
     agora = datetime.now()
     dados: Dict = {
@@ -266,14 +312,14 @@ def dados_rapidos(
         "divergencias": [],
         "coletado_em": _agora_iso(),
         "horario_dados": agora.strftime("%d/%m/%Y %H:%M:%S"),
-        "fonte": "Yahoo Finance",
+        "fonte": fonte,
         "status_geral": "parcial" if preco is not None or dy is not None else "indisponivel",
         "confianca": "media" if preco is not None else "baixa",
     }
     if preco is not None:
-        _registrar_meta(dados, "preco_atual", preco, "Yahoo Finance", confianca="alta")
+        _registrar_meta(dados, "preco_atual", preco, fonte, confianca="alta")
     if dy is not None:
-        _registrar_meta(dados, "dy", dy, "Yahoo Finance (proventos 12m)", confianca="alta")
+        _registrar_meta(dados, "dy", dy, fonte, confianca="alta")
     return dados
 
 
@@ -428,9 +474,12 @@ def buscar_dados_completos(
                     )
 
             preco_inv = numero_valido(inv.get("preco"))
-            if numero_valido(dados.get("preco_atual")) is None and preco_inv is not None:
+            if preco_inv is not None:
+                yahoo_preco = numero_valido(dados.get("preco_atual"))
+                if yahoo_preco is not None:
+                    dados["preco_yahoo"] = yahoo_preco
                 _registrar_meta(
-                    dados, "preco_atual", preco_inv, "Investidor10", confianca="baixa"
+                    dados, "preco_atual", preco_inv, "Investidor10", confianca="alta"
                 )
                 dados["preco"] = preco_inv
             div_preco = _divergencia_percentual(dados.get("preco_atual"), preco_inv)

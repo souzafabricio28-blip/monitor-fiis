@@ -81,10 +81,25 @@ def test_parser_petr4_cards():
     assert dados["dy"] == 8.47
 
 
+def test_parser_itsa3_investidor10():
+    html = (Path(__file__).parent / "fixtures" / "investidor10_itsa3.html").read_text(
+        encoding="utf-8"
+    )
+    dados = Investidor10API().parse_html("ITSA3", html)
+    assert dados["preco"] == 13.57
+    assert dados["variacao_dia"] == 0.0
+    assert dados["variacao_12m"] == 34.14
+    assert dados["p_l"] == 8.38
+    assert dados["p_vp"] == 1.62
+    assert dados["dy"] == 8.43
+    assert dados["classe"] == "acao"
+
+
 def test_url_fii_vs_acao():
     assert classe_investidor10("HGLG11") == "fii"
     assert classe_investidor10("TAEE11") == "acao"
     assert classe_investidor10("PETR4") == "acao"
     assert url_ativo("HGLG11").endswith("/fiis/hglg11/")
     assert url_ativo("PETR4").endswith("/acoes/petr4/")
+    assert url_ativo("ITSA3").endswith("/acoes/itsa3/")
     assert url_ativo("TAEE11").endswith("/acoes/taee11/")

@@ -79,7 +79,7 @@ def _cotacoes_em_paralelo(
     db: DatabaseManager,
     max_idade_min: int = 20,
 ) -> Dict[str, dict]:
-    """Cotações em lote (Yahoo). Sem Investidor10 e sem yf.info no caminho rápido."""
+    """Cotações em lote: Investidor10 prevalece; Yahoo fica de reserva."""
     resultado: Dict[str, dict] = {}
     pendentes: List[str] = []
     vistos: List[str] = []
@@ -98,7 +98,19 @@ def _cotacoes_em_paralelo(
         for ticker in pendentes:
             cotacao = lote.get(ticker) or {}
             preco = cotacao.get("preco_atual")
-            dados = dados_rapidos(ticker, preco=preco)
+            fonte = cotacao.get("fonte") or ("Investidor10" if preco is not None else "Yahoo Finance")
+            dados = dados_rapidos(
+                ticker,
+                preco=preco,
+                dy=cotacao.get("dy"),
+                fonte=fonte,
+            )
+            if cotacao.get("url_investidor10"):
+                dados["url_investidor10"] = cotacao["url_investidor10"]
+            if cotacao.get("p_l") is not None:
+                dados["p_l"] = cotacao["p_l"]
+            if cotacao.get("p_vp") is not None:
+                dados["p_vp"] = cotacao["p_vp"]
             resultado[ticker] = dados
             try:
                 db.set_cache(ticker, dados)
