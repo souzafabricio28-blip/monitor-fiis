@@ -1339,38 +1339,73 @@ def exibir_vigia():
     )
     from vigia import SITE_PADRAO, rodar_vigia, tem_chave_ia
 
+    # Evita o NotFoundError removeChild do frontend (Google Translate / DOM stale).
+    st.markdown(
+        "<style>div[data-testid='stApp']{translate:no}</style>",
+        unsafe_allow_html=True,
+    )
+
     st.caption(
         "No Render o processo dorme: o vigia também acorda o app. "
         "Alertas vão no WhatsApp +55 11 97367-4455."
     )
     if tem_chave_ia():
-        st.success("Chave de modelo detectada — o resumo em linguagem natural será pedido à API.")
+        st.success(
+            "Chave de modelo detectada — o resumo em linguagem natural será pedido à API."
+        )
     else:
         st.info(
             "Sem OPENROUTER_API_KEY / GROQ_API_KEY / OPENAI_API_KEY o vigia usa só regras "
             "(site no ar, queda 10%, watchlist, proventos zerados). "
             "Para IA de verdade, coloque uma dessas chaves no .env."
         )
-    enviar = st.checkbox("Enviar no WhatsApp se a apikey estiver configurada", value=True)
-    if st.button("Rodar vigia agora", type="primary", width="stretch"):
+
+    enviar = st.checkbox(
+        "Enviar no WhatsApp se a apikey estiver configurada",
+        value=True,
+        key="vigia_enviar_whatsapp",
+    )
+    if st.button(
+        "Rodar vigia agora",
+        type="primary",
+        width="stretch",
+        key="vigia_rodar_agora",
+    ):
         with st.spinner("Checando saúde e carteira..."):
             resultado = rodar_vigia(db=st.session_state.db, enviar=enviar)
         st.session_state["_vigia_ultimo"] = resultado
-        if resultado["saude"].get("ok"):
-            st.success("Site no ar.")
-        else:
-            st.error("Site não respondeu no health check.")
-        if resultado.get("whatsapp"):
-            st.success("Resumo enviado no WhatsApp.")
-        elif enviar:
-            st.caption("WhatsApp não enviado (falta WHATSAPP_APIKEY ou está desligado).")
+        # Rerun limpa o DOM da execução do botão (evita removeChild).
+        st.rerun()
 
     ultimo = st.session_state.get("_vigia_ultimo")
     if not ultimo:
         st.caption("Ainda não rodou nesta sessão.")
         return
+
+    saude = ultimo.get("saude") or {}
+    if saude.get("ok"):
+        st.success("Site no ar.")
+    else:
+        st.error(
+            "Site não respondeu no health check: "
+            + str(saude.get("detalhe") or "sem detalhe")
+        )
+    if ultimo.get("whatsapp"):
+        st.success("Resumo enviado no WhatsApp.")
+    elif enviar:
+        st.caption(
+            "WhatsApp não enviado (falta WHATSAPP_APIKEY ou está desligado)."
+        )
+
     st.subheader("Último relatório")
-    st.code(ultimo.get("texto") or "", language=None)
+    st.text_area(
+        "Relatório",
+        value=ultimo.get("texto") or "",
+        height=280,
+        disabled=True,
+        label_visibility="collapsed",
+        key="vigia_relatorio_texto",
+    )
     st.caption(f"Coletado em {ultimo.get('coletado_em')} · {SITE_PADRAO}")
 
 
