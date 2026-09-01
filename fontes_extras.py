@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from typing import Callable, List, Optional
+from statistics import median
+from typing import Callable, List, Optional, Sequence, Tuple
 from urllib.parse import quote
 
 import requests
@@ -332,12 +334,44 @@ def parse_google_finance(html: str) -> dict:
             pass
     if out["preco"] is None:
         soup = BeautifulSoup(html, "html.parser")
-        el = soup.select_one(".YMlKec.fxKbKc, div.YMlKec")
-        if el:
-            out["preco"] = extrair_valor_br(el.get_text(" ", strip=True))
+        for el in soup.select('span[jsname="Pdsbrc"]'):
+            txt = el.get_text(" ", strip=True)
+            if "R$" not in txt and "r$" not in txt.casefold():
+                continue
+            valor = extrair_valor_br(txt)
+            if valor is not None and valor > 0:
+                out["preco"] = valor
+                break
+        if out["preco"] is None:
+            el = soup.select_one(".YMlKec.fxKbKc, div.YMlKec")
+            if el:
+                out["preco"] = extrair_valor_br(el.get_text(" ", strip=True))
+    if out["preco"] is None:
+        m_rs = re.search(r"R\$\s*([\d.]+,\d{2})", html)
+        if m_rs:
+            out["preco"] = extrair_valor_br(m_rs.group(0))
     if out["preco"] is None:
         out["erro"] = "preço não encontrado"
     return out
+
+
+def buscar_google_pesquisa(ticker: str) -> dict:
+    """Fallback: painel de cotação na busca do Google (tbm=fin)."""
+    t = ticker_limpo(ticker)
+    url = f"https://www.google.com/search?q={quote(t)}+B3&tbm=fin&hl=pt-BR&gl=BR"
+    out = _vazio("Google Finance", url)
+    try:
+        resp = _get(url)
+        if resp.status_code != 200:
+            out["erro"] = f"HTTP {resp.status_code}"
+            return out
+        parsed = parse_google_finance(resp.text)
+        parsed["url"] = url
+        parsed["fonte"] = "Google Finance"
+        return parsed
+    except requests.RequestException as exc:
+        out["erro"] = str(exc)[:160]
+        return out
 
 
 def buscar_google_finance(ticker: str) -> dict:
@@ -351,6 +385,10 @@ def buscar_google_finance(ticker: str) -> dict:
             return out
         parsed = parse_google_finance(resp.text)
         parsed["url"] = url
+        if parsed.get("preco") is None:
+            busca = buscar_google_pesquisa(t)
+            if busca.get("preco") is not None:
+                return busca
         return parsed
     except requests.RequestException as exc:
         out["erro"] = str(exc)[:160]
@@ -409,14 +447,14 @@ def _chamar(fn: Callable[[str], dict], ticker: str) -> dict:
         return _vazio(getattr(fn, "__name__", "fonte"), erro=str(exc)[:160])
 
 
-# Google Finance fica de fora do pool: a página é JS e quase sempre
-# devolve vazio, só atrasando o Indicadores em ~8 s. O parser permanece
-# para testes e uso pontual.
+# Google Finance entra no cruzamento. O parser lê data-last-price e o
+# span jsname=Pdsbrc (R$ 13,57). Se a página vier vazia, cai na busca tbm=fin.
 FONTES_PARALELAS: tuple[Callable[[str], dict], ...] = (
     buscar_fundamentus,
     buscar_fundsexplorer,
     buscar_brapi,
     buscar_maisretorno,
+    buscar_google_finance,
 )
 
 
@@ -424,7 +462,7 @@ def consultar_fontes_extras(ticker: str) -> List[dict]:
     """Dispara as fontes em paralelo. PTAX entra no fim (macro, com cache)."""
     t = ticker_limpo(ticker)
     resultados: List[dict] = []
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         futuros = {pool.submit(_chamar, fn, t): fn for fn in FONTES_PARALELAS}
         for fut in as_completed(futuros):
             resultados.append(fut.result())
@@ -433,6 +471,7 @@ def consultar_fontes_extras(ticker: str) -> List[dict]:
         "Funds Explorer": 1,
         "Brapi": 2,
         "Mais Retorno": 3,
+        "Google Finance": 4,
     }
     resultados.sort(key=lambda d: ordem.get(d.get("fonte") or "", 9))
     ptax = buscar_ptax()
@@ -452,6 +491,96 @@ CAMPOS_PREENCHER = (
     ("ultimo_rendimento", "ultimo_rendimento"),
     ("vp_cota", "vp_cota"),
 )
+
+
+def _peso_fonte(nome: str) -> int:
+    n = (nome or "").casefold()
+    if "investidor10" in n:
+        return 3
+    if "google" in n:
+        return 2
+    if "yahoo" in n:
+        return 1
+    return 0
+
+
+def consenso_numerico(
+    amostras: Sequence[Tuple[str, float]],
+    limite_pct: float = 5.0,
+) -> dict:
+    """Agrupa valores próximos e devolve a mediana do maior grupo.
+
+    Empate: fica o grupo com Investidor10 e Google. Um ponto isolado não substitui nada.
+    """
+    validos: List[Tuple[str, float]] = []
+    vistos = set()
+    for fonte, valor in amostras or ():
+        try:
+            numero = float(valor)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(numero) or numero <= 0:
+            continue
+        chave = ((fonte or "").strip(), round(numero, 4))
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        validos.append((chave[0] or "fonte", numero))
+    if not validos:
+        return {"valor": None, "fontes": [], "n": 0, "amostras": []}
+
+    melhor: List[Tuple[str, float]] = []
+    melhor_score = (-1, -1)
+    for _fonte, base in validos:
+        grupo = [
+            (outra, valor)
+            for outra, valor in validos
+            if abs(valor - base) / base * 100 <= limite_pct
+        ]
+        score = (len(grupo), sum(_peso_fonte(nome) for nome, _ in grupo))
+        if score > melhor_score:
+            melhor = grupo
+            melhor_score = score
+    valores = sorted(valor for _, valor in melhor)
+    return {
+        "valor": float(median(valores)),
+        "fontes": [nome for nome, _ in melhor],
+        "n": len(melhor),
+        "amostras": validos,
+    }
+
+
+def aplicar_consenso(dados: dict, extras: List[dict], *, registrar, limite_pct: float = 5.0) -> None:
+    """Substitui preço/DY/P/VP pelo consenso quando 2+ fontes concordam."""
+    dados.setdefault("consenso", {})
+    pares = (("preco", "preco_atual"), ("dy", "dy"), ("p_vp", "p_vp"))
+    for origem, destino in pares:
+        amostras: List[Tuple[str, float]] = []
+        meta = (dados.get("qualidade") or {}).get(destino) or {}
+        atual = dados.get(destino)
+        fonte_atual = str(meta.get("fonte") or "")
+        if not valor_ausente(atual) and fonte_atual:
+            amostras.append((fonte_atual.split("(")[0].strip(), float(atual)))
+            meta.setdefault(f"valor_{fonte_atual}", atual)
+        for extra in extras or []:
+            if not isinstance(extra, dict) or "usd_brl" in extra:
+                continue
+            valor = extra.get(origem)
+            if valor_ausente(valor):
+                continue
+            amostras.append((str(extra.get("fonte") or "fonte"), float(valor)))
+        resultado = consenso_numerico(amostras, limite_pct=limite_pct)
+        dados["consenso"][destino] = {
+            "valor": resultado["valor"],
+            "fontes": resultado["fontes"],
+            "n": resultado["n"],
+        }
+        if resultado["n"] < 2 or resultado["valor"] is None:
+            continue
+        rotulo = "consenso (" + ", ".join(resultado["fontes"]) + ")"
+        registrar(dados, destino, resultado["valor"], rotulo, confianca="alta")
+        if destino == "preco_atual":
+            dados["preco"] = resultado["valor"]
 
 
 def _valor_da_fonte(dados: dict, campo: str, nome_fonte: str):
@@ -552,6 +681,7 @@ def aplicar_fontes_extras(
                 dados.setdefault("divergencias", []).append(
                     f"{destino}: {nome} diverge {div:.1f}%"
                 )
+    aplicar_consenso(dados, extras, registrar=registrar)
     dados["fontes_consultadas"] = consultadas
     dados["comparativo_fontes"] = montar_comparativo_fontes(dados, extras)
     return usadas

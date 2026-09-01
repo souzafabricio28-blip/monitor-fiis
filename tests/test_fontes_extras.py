@@ -1,6 +1,7 @@
 from fontes_extras import (
     FONTES_PARALELAS,
     aplicar_fontes_extras,
+    consenso_numerico,
     eh_fii,
     montar_comparativo_fontes,
     parse_brapi,
@@ -97,6 +98,30 @@ def test_parse_google_data_last_price():
     assert d["preco"] == 43.55
 
 
+def test_parse_google_pdsbrc_reais():
+    html = (
+        '<span jsname="Pdsbrc" class=""><span>R$&nbsp;13,57</span></span>'
+        '<span jsname="Pdsbrc"><span>1.117,69</span></span>'
+    )
+    d = parse_google_finance(html)
+    assert d["preco"] == 13.57
+
+
+def test_consenso_descarta_outlier():
+    out = consenso_numerico(
+        [
+            ("Yahoo Finance", 1.35),
+            ("Investidor10", 13.57),
+            ("Google Finance", 13.55),
+        ]
+    )
+    assert out["n"] == 2
+    assert abs(out["valor"] - 13.56) < 0.02
+    assert "Yahoo Finance" not in out["fontes"]
+    assert "Investidor10" in out["fontes"]
+    assert "Google Finance" in out["fontes"]
+
+
 def test_aplicar_nao_zera_nem_sobrescreve_yahoo():
     dados = {"preco_atual": 10.0, "dy": None, "qualidade": {}, "divergencias": []}
     chamadas = []
@@ -175,9 +200,9 @@ def test_aplicar_preenche_preco_nan_do_yahoo():
     assert "Funds Explorer" in usadas
 
 
-def test_google_finance_fora_do_pool_paralelo():
+def test_google_finance_entra_no_pool_paralelo():
     nomes = [fn.__name__ for fn in FONTES_PARALELAS]
-    assert "buscar_google_finance" not in nomes
+    assert "buscar_google_finance" in nomes
     assert "buscar_fundamentus" in nomes
 
 

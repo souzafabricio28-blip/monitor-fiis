@@ -14,7 +14,12 @@ import pandas as pd
 import yfinance as yf
 
 from investidor10 import CAMPOS_I10, Investidor10API, numero_valido, valor_ausente
-from fontes_extras import aplicar_fontes_extras, consultar_fontes_extras
+from fontes_extras import (
+    aplicar_fontes_extras,
+    buscar_google_finance,
+    consenso_numerico,
+    consultar_fontes_extras,
+)
 
 _api = Investidor10API()
 _mem_cache: Dict[str, tuple] = {}
@@ -268,22 +273,56 @@ def _cotacao_do_investidor10(ticker: str) -> Optional[Dict]:
     }
 
 
+def _preco_google_finance(ticker: str) -> Optional[float]:
+    try:
+        parsed = buscar_google_finance(ticker)
+    except Exception as exc:
+        logger.warning("Falha no Google Finance de %s: %s", ticker, exc)
+        return None
+    return numero_valido(parsed.get("preco"))
+
+
 def _aplicar_cotacoes_investidor10(saida: Dict[str, dict], tickers: List[str]) -> None:
-    """Investidor10 prevalece sobre o Yahoo quando a cotação existe."""
+    """Cruza Yahoo + Investidor10 + Google e fica com o consenso."""
     if not tickers:
         return
+
+    def _um(ticker: str):
+        return ticker, _cotacao_do_investidor10(ticker), _preco_google_finance(ticker)
+
     workers = min(8, len(tickers))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        pares = list(zip(tickers, pool.map(_cotacao_do_investidor10, tickers)))
-    for ticker, inv in pares:
-        if not inv:
-            continue
+        pares = list(pool.map(_um, tickers))
+    for ticker, inv, google in pares:
         atual = dict(saida.get(ticker) or {})
         yahoo = numero_valido(atual.get("preco_atual"))
         if yahoo is not None:
             atual["preco_yahoo"] = yahoo
-        atual.update(inv)
-        saida[ticker] = atual
+        if inv:
+            atual.update(inv)
+        if google is not None:
+            atual["preco_google"] = google
+        amostras = []
+        if yahoo is not None:
+            amostras.append(("Yahoo Finance", yahoo))
+        if inv and inv.get("preco_atual") is not None:
+            amostras.append(("Investidor10", float(inv["preco_atual"])))
+        if google is not None:
+            amostras.append(("Google Finance", float(google)))
+        consenso = consenso_numerico(amostras)
+        if consenso["n"] >= 2 and consenso["valor"] is not None:
+            atual["preco_atual"] = consenso["valor"]
+            atual["preco"] = consenso["valor"]
+            atual["fonte"] = "consenso (" + ", ".join(consenso["fontes"]) + ")"
+            atual["consenso_preco"] = consenso
+        elif inv:
+            atual["fonte"] = "Investidor10"
+        elif google is not None:
+            atual["preco_atual"] = google
+            atual["preco"] = google
+            atual["fonte"] = "Google Finance"
+        if atual:
+            saida[ticker] = atual
 
 
 def dados_rapidos(

@@ -806,9 +806,9 @@ def exibir_rebalanceamento():
 def exibir_buscar_fii():
     pagina(
         "Indicadores",
-        "Mesmos cards da página pública do Investidor10: cotação, DY, P/VP, "
-        "liquidez, vacância, cotistas e o restante. Informe um fundo (MXRF11) "
-        "ou uma ação (PETR4).",
+        "Mesmos cards da página pública do Investidor10, cruzados com Yahoo, Google Finance, "
+        "Fundamentus e as demais fontes. O preço final é o consenso das que concordam. "
+        "Informe um fundo (MXRF11) ou uma ação (PETR4).",
     )
     c1, c2 = st.columns([3, 1])
     ticker = c1.text_input("Ticker", "MXRF11").upper()
@@ -817,7 +817,7 @@ def exibir_buscar_fii():
     if not buscar:
         return
 
-    with st.spinner("Consultando Yahoo, Investidor10, Fundamentus e outras fontes..."):
+        with st.spinner("Cruzando Yahoo, Investidor10, Google e outras fontes..."):
         dados = buscar_dados_tempo_real(ticker, completo=True)
 
     if "erro" in dados:

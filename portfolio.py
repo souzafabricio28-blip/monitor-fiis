@@ -93,7 +93,11 @@ def _cotacoes_em_paralelo(
             cached
             and "erro" not in cached
             and cached.get("preco_atual") is not None
-            and "investidor10" in fonte_cache
+            and (
+                "investidor10" in fonte_cache
+                or "consenso" in fonte_cache
+                or "google" in fonte_cache
+            )
         ):
             resultado[ticker] = cached
         else:
