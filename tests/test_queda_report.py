@@ -48,6 +48,29 @@ def test_pdf_queda_bytes():
     assert pdf[:4] == b"%PDF"
 
 
+def test_pdf_queda_varias_manchetes_longas():
+    """fpdf2 deixa o cursor à direita após multi_cell; várias fontes quebravam o PDF."""
+    queda = gatilhos_de_queda(80, preco_compra=100)
+    noticias = [
+        {
+            "titulo": "Fundo recua apos resultado e mercado reage com vendas",
+            "fonte": "InfoMoney",
+        },
+        {
+            "titulo": "https://www.infomoney.com.br/mercados/" + ("mxrf11-queda-longa-" * 12),
+            "fonte": "Google News",
+        },
+        {
+            "titulo": "Gestora comenta desconto em relacao ao valor patrimonial",
+            "fonte": "Yahoo Finance",
+        },
+    ]
+    resumo = montar_resumo("MXRF11", queda, noticias)
+    pdf = gerar_pdf_queda_bytes(resumo)
+    assert pdf[:4] == b"%PDF"
+    assert len(pdf) > 200
+
+
 def test_parse_infomoney_posts():
     posts = [
         {

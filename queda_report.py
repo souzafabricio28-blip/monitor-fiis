@@ -297,6 +297,25 @@ def _pdf_txt(texto: str) -> str:
     return convertido.encode("latin-1", "replace").decode("latin-1")
 
 
+def _quebrar_tokens_longos(texto: str, max_len: int = 70) -> str:
+    """Evita token sem espaço (URL, ticker colado) estourar a largura do PDF."""
+    partes = []
+    for token in str(texto or "").split(" "):
+        if len(token) <= max_len:
+            partes.append(token)
+            continue
+        partes.append(" ".join(token[i : i + max_len] for i in range(0, len(token), max_len)))
+    return " ".join(partes)
+
+
+def _bloco(pdf: FPDF, texto: str, h: float = 5) -> None:
+    """multi_cell a partir da margem esquerda (fpdf2 deixa o cursor à direita)."""
+    pdf.set_x(pdf.l_margin)
+    largura = max(pdf.epw, 10)
+    pdf.multi_cell(largura, h, _pdf_txt(_quebrar_tokens_longos(texto)))
+    pdf.set_x(pdf.l_margin)
+
+
 class QuedaPDF(FPDF):
     def header(self):
         self.set_font("Arial", "B", 16)
@@ -337,7 +356,7 @@ def gerar_pdf_queda_bytes(resumo: Dict) -> bytes:
 
     pdf.set_font("Arial", "", 11)
     pdf.set_text_color(50, 50, 50)
-    pdf.multi_cell(0, 6, _pdf_txt(resumo.get("abertura") or ""))
+    _bloco(pdf, resumo.get("abertura") or "", 6)
     pdf.ln(3)
 
     linhas = [
@@ -360,7 +379,7 @@ def gerar_pdf_queda_bytes(resumo: Dict) -> bytes:
     pdf.set_font("Arial", "B", 13)
     pdf.cell(0, 8, "Por que caiu (noticias)", ln=True)
     pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(0, 6, _pdf_txt(resumo.get("motivo") or "N/D"))
+    _bloco(pdf, resumo.get("motivo") or "N/D", 6)
 
     noticias = resumo.get("noticias") or []
     if noticias:
@@ -370,7 +389,7 @@ def gerar_pdf_queda_bytes(resumo: Dict) -> bytes:
         pdf.set_font("Arial", "", 9)
         for item in noticias:
             linha = f"* {item.get('fonte')}: {item.get('titulo')}"
-            pdf.multi_cell(0, 5, _pdf_txt(linha))
+            _bloco(pdf, linha, 5)
 
     raw = pdf.output(dest="S")
     if isinstance(raw, str):
