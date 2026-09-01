@@ -5,7 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from fpdf import FPDF
+try:
+    from fpdf import FPDF
+except ImportError:  # pragma: no cover - ambiente sem fpdf2
+    FPDF = object  # type: ignore[misc, assignment]
 
 from criterios import (
     _criterio_idade_fii,
