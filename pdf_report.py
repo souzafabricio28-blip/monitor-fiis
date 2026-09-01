@@ -3,10 +3,13 @@ Gerador de relatórios PDF para FIIs.
 """
 
 from io import BytesIO
-
-from fpdf import FPDF
 from datetime import datetime
 import os
+
+try:
+    from fpdf import FPDF
+except ImportError:  # pragma: no cover - ambiente sem fpdf2
+    FPDF = object  # type: ignore[misc, assignment]
 
 
 def _moeda(valor):
