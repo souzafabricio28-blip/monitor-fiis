@@ -562,6 +562,54 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
+    def ajustar_quantidade(self, ticker: str, nova_quantidade: int) -> str:
+        """Ajusta a quantidade mantendo o PM (compra/venda da diferença).
+
+        nova_quantidade = 0 encerra a posição. Retorna a ação aplicada.
+        """
+        ticker = ticker.upper().replace(".SA", "").strip()
+        nova_quantidade = int(nova_quantidade)
+        if nova_quantidade < 0:
+            raise ValueError("Quantidade não pode ser negativa")
+
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT quantidade, preco_compra FROM carteira WHERE ticker = {_ph()}",
+            (ticker,),
+        )
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            raise ValueError(f"{ticker} não está na carteira")
+
+        atual = int(row[0])
+        preco_medio = float(row[1])
+        if nova_quantidade == atual:
+            return "inalterado"
+        if nova_quantidade == 0:
+            self.remover_fii(ticker)
+            return "excluido"
+
+        delta = nova_quantidade - atual
+        if delta > 0:
+            self.registrar_movimentacao(
+                ticker,
+                "COMPRA",
+                delta,
+                preco_medio,
+                observacoes=f"Ajuste de quantidade: {atual} → {nova_quantidade}",
+            )
+            return "aumentado"
+        self.registrar_movimentacao(
+            ticker,
+            "VENDA",
+            abs(delta),
+            preco_medio,
+            observacoes=f"Ajuste de quantidade: {atual} → {nova_quantidade}",
+        )
+        return "reduzido"
+
     def remover_fii(self, ticker: str):
         """Encerra a posição ao preço médio, preservando o histórico."""
         ticker = ticker.upper().replace(".SA", "").strip()
@@ -579,7 +627,7 @@ class DatabaseManager:
                 "VENDA",
                 int(row[0]),
                 float(row[1]),
-                observacoes="Encerramento de posição pelo comando remover",
+                observacoes="Exclusão da posição na carteira",
             )
 
     def salvar_cotacao(self, ticker: str, preco: float, data: Optional[str] = None):
