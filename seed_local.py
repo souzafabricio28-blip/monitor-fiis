@@ -8,20 +8,22 @@ from __future__ import annotations
 
 from typing import Sequence
 
-# Posições registadas no handoff (saldo inicial, sem alterar preço médio).
+# Posições alinhadas ao extrato Nubank (custódia 01/09/2026).
+# PM: histórico local quando conhecido; ITSA4 usa cotação do extrato.
 POSICOES_LOCAIS: Sequence[tuple[str, int, float]] = (
-    ("MXRF11", 40, 9.23),
+    ("MXRF11", 48, 9.23),
     ("BTCI11", 10, 8.97),
     ("CPTS11", 10, 7.43),
     ("GARE11", 10, 8.31),
     ("KNSC11", 10, 9.04),
     ("MANA11", 10, 9.11),
-    ("RURA11", 12, 8.14),
     ("SNEL11", 10, 8.15),
     ("VGHF11", 10, 5.32),
-    ("VGIR11", 10, 9.42),
     ("VRTM11", 10, 6.57),
+    ("BBAS3", 1, 20.96),
+    ("KLBN4", 1, 3.81),
     ("PETR4", 4, 41.45),
+    ("ITSA4", 2, 13.16),
 )
 
 
