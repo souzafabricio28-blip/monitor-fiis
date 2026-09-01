@@ -25,6 +25,7 @@ como N/D (sem dados) em vez de "aprovado" ou "reprovado".
 
 import re
 import statistics
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -46,6 +47,15 @@ REFERENCIA_ACOES = [
 _liq_cache = {}
 _fiis_cache = {}
 _pvp_cache = {}
+
+CAMPOS_I10_FII = (
+    "vacancia",
+    "liquidez_diaria",
+    "cotistas",
+    "vp_cota",
+    "taxa_administracao",
+    "variacao_12m",
+)
 
 
 class NdorInvalido:
@@ -95,12 +105,16 @@ def _volume_referencia(tipo):
 
 def checar_liquidez(ticker, tipo, valor_negociado=None):
     """Liquidez acima da média do mercado. Retorna (ok, valor, media)."""
-    if valor_negociado is None:
-        valor_negociado = _valor_negociado_diario(ticker)
+    try:
+        valor = float(valor_negociado) if valor_negociado is not None else None
+    except (TypeError, ValueError):
+        valor = None
+    if valor is None or valor != valor or valor <= 0:
+        valor = _valor_negociado_diario(ticker)
     media = _volume_referencia(tipo)
-    if not valor_negociado or not media:
-        return None, valor_negociado, media
-    return valor_negociado > media, valor_negociado, media
+    if not valor or not media:
+        return None, valor, media
+    return valor > media, valor, media
 
 
 def _dy_mensal(ticker, preco):
@@ -548,10 +562,10 @@ def _buscar_base(ticker, tipo, permitir_scrape=False):
                 dados[campo] = extra.get(campo)
         if extra.get("setor"):
             dados["setor_inv"] = extra.get("setor")
-        if dados.get("vacancia") is None:
+        faltando_i10 = any(dados.get(c) in (None, "") for c in CAMPOS_I10_FII)
+        if faltando_i10:
             inv = _buscar_investidor10(ticker)
-            if inv and inv.get("vacancia") is not None:
-                dados["vacancia"] = inv["vacancia"]
+            if inv and not inv.get("erro"):
                 dados["setor_inv"] = inv.get("setor") or dados.get("setor_inv")
                 for campo in campos_i10:
                     if dados.get(campo) in (None, "") and inv.get(campo) not in (None, ""):
@@ -705,7 +719,9 @@ def avaliar_fii(ticker, permitir_scrape=False):
             "obs": "Sem dados",
         })
 
-    liq_passou, liq_valor, liq_media = checar_liquidez(ticker, "fii")
+    liq_passou, liq_valor, liq_media = checar_liquidez(
+        ticker, "fii", valor_negociado=dados.get("liquidez_diaria")
+    )
     if liq_passou is not None:
         criterios.append({
             "crit": "Liquidez acima da média",
@@ -760,7 +776,9 @@ def avaliar_acao(ticker, permitir_scrape=False):
             "obs": "Demonstrativo financeiro não disponível",
         })
 
-    liq_passou, liq_valor, liq_media = checar_liquidez(ticker, "acao")
+    liq_passou, liq_valor, liq_media = checar_liquidez(
+        ticker, "acao", valor_negociado=dados.get("liquidez_diaria")
+    )
     if liq_passou is not None:
         criterios.append({
             "crit": "Ter liquidez",
@@ -883,6 +901,123 @@ def avaliar_ativo(ticker, permitir_scrape=False):
     if eh_fii(ticker):
         return avaliar_fii(ticker, permitir_scrape=permitir_scrape)
     return avaliar_acao(ticker, permitir_scrape=permitir_scrape)
+
+
+def _avaliar_um_scrape(ticker: str):
+    codigo = (ticker or "").upper().replace(".SA", "").strip()
+    try:
+        return codigo, avaliar_ativo(codigo, permitir_scrape=True), None
+    except Exception as exc:
+        return codigo, None, str(exc)[:200]
+
+
+def atualizar_criterios_carteira(db, tickers) -> dict:
+    """Raspa o Investidor10 (e demais fontes) e grava a avaliação de cada ticker."""
+    limpos, vistos = [], set()
+    for ticker in tickers or []:
+        codigo = str(ticker or "").upper().replace(".SA", "").strip()
+        if codigo and codigo not in vistos:
+            vistos.add(codigo)
+            limpos.append(codigo)
+    ok, falhas = [], {}
+    if not limpos:
+        return {"ok": ok, "falhas": falhas}
+    workers = min(4, len(limpos))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        resultados = list(pool.map(_avaliar_um_scrape, limpos))
+    for ticker, av, erro in resultados:
+        if not av:
+            falhas[ticker] = erro or "Falha ao avaliar"
+            continue
+        try:
+            db.salvar_avaliacao(ticker, av)
+            ok.append(ticker)
+        except Exception as exc:
+            falhas[ticker] = str(exc)[:200]
+    return {"ok": ok, "falhas": falhas}
+
+
+def _txt_i10(valor, kind: str) -> str:
+    from investidor10 import formatar_compacto, formatar_numero, formatar_pct, numero_valido
+
+    if kind == "pct":
+        return formatar_pct(valor)
+    if kind == "money":
+        return formatar_compacto(valor)
+    if kind == "int":
+        n = numero_valido(valor)
+        if n is None:
+            return "N/D"
+        return f"{int(n):,}".replace(",", ".")
+    return formatar_numero(valor)
+
+
+def linha_tabela_criterios(ticker, av, classe: str, setor_catalogo: str | None = None) -> dict:
+    """Uma linha da Checklist: critérios + campos do Investidor10. Sem dado = N/D."""
+    from portfolio import resumo_criterios
+
+    ticker = str(ticker or "").upper().replace(".SA", "").strip()
+    dados = (av or {}).get("dados") or {}
+    if av:
+        resumo = resumo_criterios(av)
+        status = "AÇÃO" if classe != "fundo" and resumo["status"] == "acao" else None
+        if status is None:
+            if resumo["status"] == "aprovado":
+                status = "APROVADO"
+            elif resumo["status"] == "reprovado":
+                status = "REPROVADO"
+            elif resumo["status"] == "acao":
+                status = "AÇÃO"
+            else:
+                status = "N/D"
+        ok, fail, nd = resumo["ok"], resumo["fail"], resumo["nd"]
+    else:
+        status = "AÇÃO" if classe != "fundo" else "N/D"
+        ok = fail = nd = 0
+    setor = (
+        dados.get("setor_final")
+        or dados.get("setor")
+        or setor_catalogo
+        or ("Ação" if classe != "fundo" else "N/D")
+    )
+    linha = {
+        "Ticker": ticker,
+        "Status": status,
+        "OK": ok,
+        "Fail": fail,
+        "ND": nd,
+        "Liquidez": _txt_i10(dados.get("liquidez_diaria"), "money"),
+        "Var. 12M": _txt_i10(dados.get("variacao_12m"), "pct"),
+    }
+    if classe == "fundo":
+        linha["Setor"] = setor or "N/D"
+        linha["Vacância"] = _txt_i10(dados.get("vacancia"), "pct")
+        linha["Cotistas"] = _txt_i10(dados.get("cotistas"), "int")
+        linha["VP/cota"] = _txt_i10(dados.get("vp_cota"), "money")
+        linha["Taxa adm."] = _txt_i10(dados.get("taxa_administracao"), "pct")
+    else:
+        linha["P/VP"] = _txt_i10(dados.get("p_vp"), "num")
+    return linha
+
+
+def montar_tabelas_checklist(carteira, obter_avaliacao, setor_de=None):
+    """Parte a carteira em linhas de fundos e de ações para a Checklist."""
+    rows_fundos, rows_acoes, setores = [], [], []
+    if carteira is None or getattr(carteira, "empty", True):
+        return rows_fundos, rows_acoes, setores
+    for _, row in carteira.iterrows():
+        ticker = str(row.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        av = obter_avaliacao(ticker)
+        catalogo = (setor_de(ticker) if setor_de else None) or "N/D"
+        if classe_ativo(ticker) == "fundo":
+            linha = linha_tabela_criterios(ticker, av, "fundo", catalogo)
+            rows_fundos.append(linha)
+            setores.append(linha.get("Setor") or catalogo)
+        else:
+            rows_acoes.append(linha_tabela_criterios(ticker, av, "acao", catalogo))
+    return rows_fundos, rows_acoes, setores
 
 
 SETORES_ALVO = ["Logística/Galpão", "Shopping", "Empresarial", "Papel"]

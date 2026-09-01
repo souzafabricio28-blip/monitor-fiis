@@ -162,7 +162,8 @@ def cards_resumo_i10(dados: dict, classe: str) -> list[dict]:
 def cards_detalhe_i10(dados: dict, classe: str) -> list[dict]:
     if classe not in {"fundo", "fii"}:
         return []
-    cotistas = dados.get("cotistas")
+    cotistas = numero_valido(dados.get("cotistas"))
+    cotas = numero_valido(dados.get("cotas_emitidas"))
     return [
         {
             "label": "Vacância",
@@ -182,15 +183,11 @@ def cards_detalhe_i10(dados: dict, classe: str) -> list[dict]:
         },
         {
             "label": "Cotistas",
-            "valor": f"{int(cotistas):,}".replace(",", ".") if cotistas else "N/D",
+            "valor": f"{int(cotistas):,}".replace(",", ".") if cotistas is not None else "N/D",
         },
         {
             "label": "Cotas emitidas",
-            "valor": (
-                f"{int(dados['cotas_emitidas']):,}".replace(",", ".")
-                if dados.get("cotas_emitidas")
-                else "N/D"
-            ),
+            "valor": f"{int(cotas):,}".replace(",", ".") if cotas is not None else "N/D",
         },
         {
             "label": "Patrimônio",

@@ -23,7 +23,14 @@ import plotly.express as px
 import streamlit as st
 
 from auth import esta_autenticado, exigir_login, logout
-from criterios import avaliar_ativo, avaliar_diversificacao_setores, classe_ativo, eh_fii
+from criterios import (
+    atualizar_criterios_carteira,
+    avaliar_ativo,
+    avaliar_diversificacao_setores,
+    classe_ativo,
+    eh_fii,
+    montar_tabelas_checklist,
+)
 from dashboard_ui import render_painel
 from db import USE_POSTGRES, DatabaseManager
 from fiis_database import FIIS_POPULARES, buscar_fii_por_ticker
@@ -100,15 +107,9 @@ def status_badge(status: str) -> str:
     return "N/D"
 
 
-def _resumo_posicao(ticker: str, av: dict | None, forcar: bool):
-    """Usa catálogo/cache no dashboard; só raspa a web se o utilizador pedir."""
+def _resumo_posicao(ticker: str, av: dict | None):
+    """Usa catálogo/cache no dashboard. Scrape do Investidor10 fica em Atualizar critérios."""
     curado = buscar_fii_por_ticker(ticker)
-    if forcar:
-        try:
-            av = avaliar_ativo(ticker, permitir_scrape=True)
-            st.session_state.db.salvar_avaliacao(ticker, av)
-        except Exception:
-            pass
     if av:
         tipo = (av.get("tipo") or "").lower()
         if tipo == "ação" or tipo == "acao":
@@ -139,10 +140,9 @@ def main():
             st.session_state["forcar_cotacoes"] = True
             _invalidar_analise()
             limpar_cache_memoria()
-            st.rerun()
         if st.button("Atualizar critérios", width="stretch"):
             st.session_state["forcar_criterios"] = True
-            st.rerun()
+            _invalidar_analise()
         if esta_autenticado():
             st.caption(f"Sessão: {st.session_state.get('auth_user', 'admin')}")
             if st.button("Sair", width="stretch"):
@@ -183,6 +183,34 @@ def main():
         garantir_plano_local(st.session_state.db)
         st.session_state["_plano_local_ok"] = True
 
+    if st.session_state.pop("forcar_criterios", False):
+        carteira_crit = st.session_state.db.obter_carteira()
+        tickers_crit = (
+            [str(row["ticker"]).upper() for _, row in carteira_crit.iterrows()]
+            if carteira_crit is not None and not carteira_crit.empty
+            else []
+        )
+        with st.spinner(
+            "Buscando no Investidor10 vacância, liquidez, cotistas, "
+            "VP/cota, taxa de administração e variação 12 meses..."
+        ):
+            resultado_crit = atualizar_criterios_carteira(
+                st.session_state.db, tickers_crit
+            )
+        n_ok = len(resultado_crit.get("ok") or [])
+        falhas_crit = resultado_crit.get("falhas") or {}
+        if n_ok:
+            st.success(
+                f"Critérios atualizados no Investidor10 para {n_ok} ativo(s)."
+            )
+        if falhas_crit:
+            st.warning(
+                "Sem dado completo para: "
+                + ", ".join(f"{t} ({e})" for t, e in falhas_crit.items())
+            )
+        if not n_ok and not falhas_crit:
+            st.info("Carteira vazia — nada para atualizar nos critérios.")
+
     rotas = {
         "Resumo": exibir_dashboard,
         "Dividendos": exibir_proventos,
@@ -204,11 +232,10 @@ def _montar_carteira_enriquecida(max_idade_min: int = 20):
     itens = []
     if "erro" in analise:
         return itens, analise
-    forcar = bool(st.session_state.pop("forcar_criterios", False))
     for fii in analise["fiis"]:
         ticker = fii["ticker"]
         av = st.session_state.db.obter_avaliacao(ticker)
-        av, resumo, setor = _resumo_posicao(ticker, av, forcar)
+        av, resumo, setor = _resumo_posicao(ticker, av)
         dados_av = (av or {}).get("dados") or {}
 
         itens.append(
@@ -238,6 +265,8 @@ def _montar_carteira_enriquecida(max_idade_min: int = 20):
                 "vacancia": dados_av.get("vacancia"),
                 "liquidez_diaria": dados_av.get("liquidez_diaria"),
                 "cotistas": dados_av.get("cotistas"),
+                "vp_cota": dados_av.get("vp_cota"),
+                "taxa_administracao": dados_av.get("taxa_administracao"),
                 "ultimo_rendimento": dados_av.get("ultimo_rendimento"),
                 "variacao_12m": dados_av.get("variacao_12m")
                 if dados_av.get("variacao_12m") is not None
@@ -281,9 +310,8 @@ def exibir_dashboard():
         selo="Ao vivo",
     )
     forcar_cot = bool(st.session_state.pop("forcar_cotacoes", False))
-    forcar_crit = bool(st.session_state.get("forcar_criterios", False))
     cache_dash = st.session_state.get("_dashboard_cache")
-    if cache_dash and not forcar_cot and not forcar_crit:
+    if cache_dash and not forcar_cot:
         itens, analise = cache_dash["itens"], cache_dash["analise"]
     else:
         with st.spinner("Atualizando cotações da carteira..."):
@@ -817,7 +845,7 @@ def exibir_buscar_fii():
     if not buscar:
         return
 
-        with st.spinner("Cruzando Yahoo, Investidor10, Google e outras fontes..."):
+    with st.spinner("Cruzando Yahoo, Investidor10, Google e outras fontes..."):
         dados = buscar_dados_tempo_real(ticker, completo=True)
 
     if "erro" in dados:
@@ -917,107 +945,106 @@ def exibir_criterios():
 
     ticker = st.text_input("Avaliar ticker", "MXRF11").upper()
     if st.button("Avaliar", type="primary"):
-        with st.spinner("Avaliando..."):
-            av = avaliar_ativo(ticker, permitir_scrape=True)
-            st.session_state.db.salvar_avaliacao(ticker, av)
-            st.session_state["avaliacao_detalhe"] = av
-            st.session_state["avaliacao_ticker"] = ticker
+        with st.spinner("Avaliando no Investidor10..."):
+            try:
+                av = avaliar_ativo(ticker, permitir_scrape=True)
+                st.session_state.db.salvar_avaliacao(ticker, av)
+                st.session_state["avaliacao_detalhe"] = av
+                st.session_state["avaliacao_ticker"] = ticker
+            except Exception as exc:
+                st.warning(f"Não foi possível avaliar {ticker}.")
+                st.caption(str(exc)[:300])
 
     av_detalhe = st.session_state.get("avaliacao_detalhe")
     if av_detalhe and st.session_state.get("avaliacao_ticker") == ticker:
-        resumo = resumo_criterios(av_detalhe)
-        classe = "fundo" if classe_ativo(ticker) == "fundo" else "acao"
-        dados_av = av_detalhe.get("dados") or {}
-        cabecalho_ativo(
-            ticker,
-            dados_av.get("nome") or dados_av.get("razao_social"),
-            classe,
-            dados_av,
-        )
-        st.caption(
-            f"Aprovados: {resumo['ok']} · Reprovados: {resumo['fail']} · N/D: {resumo['nd']}"
-        )
-        st.dataframe(_tabela_criterios(av_detalhe), width="stretch", hide_index=True)
+        try:
+            resumo = resumo_criterios(av_detalhe)
+            classe = "fundo" if classe_ativo(ticker) == "fundo" else "acao"
+            dados_av = av_detalhe.get("dados") or {}
+            cabecalho_ativo(
+                ticker,
+                dados_av.get("nome") or dados_av.get("razao_social"),
+                classe,
+                dados_av,
+            )
+            st.caption(
+                f"Aprovados: {resumo['ok']} · Reprovados: {resumo['fail']} · N/D: {resumo['nd']}"
+            )
+            st.dataframe(_tabela_criterios(av_detalhe).astype(str), width="stretch", hide_index=True)
+        except Exception as exc:
+            st.warning("Não foi possível exibir o detalhe deste ticker.")
+            st.caption(str(exc)[:300])
 
     st.divider()
     st.subheader("Carteira sob os critérios")
     st.caption(
         "Fundos e ações em tabelas separadas. Os critérios de FII (DY, vacância, P/VP) "
         "não se aplicam a ações. **Atualizar critérios** busca no Investidor10 "
-        "vacância, liquidez, cotistas, VP/cota, taxa de adm. e variação 12 meses."
+        "vacância, liquidez, cotistas, VP/cota, taxa de administração e variação 12 meses."
     )
     carteira = st.session_state.db.obter_carteira()
     if carteira.empty:
         st.info("Carteira vazia.")
         return
 
-    rows_fundos = []
-    rows_acoes = []
-    setores = []
-    for _, row in carteira.iterrows():
-        ticker_pos = str(row["ticker"]).upper()
-        av = st.session_state.db.obter_avaliacao(ticker_pos)
-        if classe_ativo(ticker_pos) != "fundo":
-            if av:
-                resumo = resumo_criterios(av)
-                rows_acoes.append(
-                    {
-                        "Ticker": ticker_pos,
-                        "Status": status_badge(resumo["status"]),
-                        "OK": resumo["ok"],
-                        "Fail": resumo["fail"],
-                        "N/D": resumo["nd"],
-                    }
-                )
-            else:
-                rows_acoes.append(
-                    {
-                        "Ticker": ticker_pos,
-                        "Status": "AÇÃO",
-                        "OK": 0,
-                        "Fail": 0,
-                        "N/D": 0,
-                    }
-                )
-            continue
-        if av:
-            resumo = resumo_criterios(av)
-            setor = av.get("dados", {}).get("setor_final") or (
-                buscar_fii_por_ticker(ticker_pos) or {}
-            ).get("setor") or "N/D"
-            rows_fundos.append(
-                {
-                    "Ticker": ticker_pos,
-                    "Status": status_badge(resumo["status"]),
-                    "OK": resumo["ok"],
-                    "Fail": resumo["fail"],
-                    "N/D": resumo["nd"],
-                    "Setor": setor,
-                }
-            )
-            setores.append(setor)
-        else:
-            setor = (buscar_fii_por_ticker(ticker_pos) or {}).get("setor") or "N/D"
-            rows_fundos.append(
-                {
-                    "Ticker": ticker_pos,
-                    "Status": "N/D",
-                    "OK": 0,
-                    "Fail": 0,
-                    "N/D": 0,
-                    "Setor": setor,
-                }
-            )
-            setores.append(setor)
+    def _av_checklist(ticker_pos: str):
+        return st.session_state.db.obter_avaliacao(ticker_pos, max_age_hours=24 * 30)
+
+    def _setor_catalogo(ticker_pos: str) -> str:
+        return (buscar_fii_por_ticker(ticker_pos) or {}).get("setor") or "N/D"
+
+    try:
+        rows_fundos, rows_acoes, setores = montar_tabelas_checklist(
+            carteira, _av_checklist, setor_de=_setor_catalogo
+        )
+    except Exception as exc:
+        st.warning("Não foi possível montar as tabelas de critérios.")
+        st.caption(str(exc)[:300])
+        return
+
+    cols_fundos = [
+        "Ticker",
+        "Status",
+        "OK",
+        "Fail",
+        "ND",
+        "Setor",
+        "Vacância",
+        "Liquidez",
+        "Cotistas",
+        "VP/cota",
+        "Taxa adm.",
+        "Var. 12M",
+    ]
+    cols_acoes = [
+        "Ticker",
+        "Status",
+        "OK",
+        "Fail",
+        "ND",
+        "Liquidez",
+        "Var. 12M",
+        "P/VP",
+    ]
 
     st.markdown("**Fundos imobiliários**")
     if rows_fundos:
-        st.dataframe(pd.DataFrame(rows_fundos), width="stretch", hide_index=True)
+        df_f = pd.DataFrame(rows_fundos)
+        st.dataframe(
+            df_f[[c for c in cols_fundos if c in df_f.columns]].astype(str),
+            width="stretch",
+            hide_index=True,
+        )
     else:
         st.info("Nenhum fundo na carteira.")
     st.markdown("**Ações**")
     if rows_acoes:
-        st.dataframe(pd.DataFrame(rows_acoes), width="stretch", hide_index=True)
+        df_a = pd.DataFrame(rows_acoes)
+        st.dataframe(
+            df_a[[c for c in cols_acoes if c in df_a.columns]].astype(str),
+            width="stretch",
+            hide_index=True,
+        )
     else:
         st.info("Nenhuma ação na carteira.")
     div = avaliar_diversificacao_setores(setores)

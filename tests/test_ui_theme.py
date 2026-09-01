@@ -61,6 +61,17 @@ def test_cards_resumo_nao_mostram_nan():
     assert cot["delta"] == "+1,20%"
 
 
+def test_cards_detalhe_nan_nao_quebra():
+    cards = cards_detalhe_i10(
+        {"cotistas": float("nan"), "cotas_emitidas": float("nan"), "vacancia": float("nan")},
+        "fii",
+    )
+    cot = next(c for c in cards if c["label"] == "Cotistas")
+    vac = next(c for c in cards if c["label"] == "Vacância")
+    assert cot["valor"] == "N/D"
+    assert vac["valor"] == "N/D"
+
+
 def test_cards_detalhe_fii_incluem_vacancia():
     cards = cards_detalhe_i10(
         {"vacancia": 2.9, "cotistas": 608340, "setor": "Logístico"},
