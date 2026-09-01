@@ -318,8 +318,8 @@ def exibir_quedas():
     pagina(
         "Quedas de 10%",
         f"Quando o preço cai {LIMITE_QUEDA_PCT:.0f}% ou mais (vs compra, vs ontem "
-        "ou vs a máxima do mês), o sistema junta as manchetes do InfoMoney, Yahoo e Google News "
-        "e gera um PDF. Sem notícia o motivo fica N/D — não inventamos a causa. "
+        "ou vs a máxima do mês), o PDF traz o motivo da queda extraído das manchetes "
+        "(InfoMoney, Yahoo e Google News). Sem notícia o motivo fica N/D — não inventamos a causa. "
         "O download vai para o seu computador pelo navegador.",
     )
     cache = st.session_state.get("_dashboard_cache") or {}
@@ -379,6 +379,7 @@ def exibir_quedas():
         ticker = resumo.get("ticker")
         st.subheader(ticker)
         st.write(resumo.get("abertura") or "")
+        st.markdown("**Motivo da queda**")
         st.write(resumo.get("motivo") or "N/D")
         pdf = resumo.get("pdf")
         if pdf:

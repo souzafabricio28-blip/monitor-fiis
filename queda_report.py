@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import logging
+import os
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -91,6 +92,57 @@ def _limpar_titulo(texto: str) -> str:
     return texto
 
 
+PALAVRAS_QUEDA = (
+    "queda",
+    "recua",
+    "recuo",
+    "cai ",
+    "caiu",
+    "desvaloriz",
+    "derrete",
+    "pressao",
+    "pressão",
+    "resultado",
+    "prejuizo",
+    "prejuízo",
+    "corte",
+    "rebaixa",
+    "downgrade",
+    "divida",
+    "dívida",
+    "vacancia",
+    "vacância",
+    "inadimpl",
+    "juros",
+    "selic",
+    "guidance",
+    "lucro",
+    "desconto",
+)
+
+
+def _blob_noticia(item: dict) -> str:
+    return " ".join(
+        str(item.get(chave) or "")
+        for chave in ("titulo", "resumo", "fonte", "link")
+    ).casefold()
+
+
+def _score_noticia(ticker: str, item: dict) -> int:
+    blob = _blob_noticia(item)
+    codigo = (ticker or "").casefold()
+    score = 0
+    if codigo and codigo in blob:
+        score += 6
+    elif codigo and codigo[:4] in blob:
+        score += 4
+    if any(palavra in blob for palavra in PALAVRAS_QUEDA):
+        score += 4
+    if item.get("resumo"):
+        score += 1
+    return score
+
+
 def _noticias_yahoo(ticker: str, limite: int) -> List[dict]:
     itens: List[dict] = []
     try:
@@ -120,12 +172,21 @@ def _noticias_yahoo(ticker: str, limite: int) -> List[dict]:
                 if isinstance(conteudo.get("provider"), dict)
                 else item.get("publisher") or "Yahoo Finance"
             )
+            resumo = _limpar_titulo(
+                str(
+                    conteudo.get("summary")
+                    or conteudo.get("description")
+                    or item.get("summary")
+                    or ""
+                )
+            )
             itens.append(
                 {
                     "titulo": titulo,
                     "fonte": fonte or "Yahoo Finance",
                     "link": link,
                     "origem": "Yahoo Finance",
+                    "resumo": resumo[:400],
                 }
             )
             if len(itens) >= limite:
@@ -135,11 +196,11 @@ def _noticias_yahoo(ticker: str, limite: int) -> List[dict]:
     return itens
 
 
-def _noticias_google(ticker: str, limite: int) -> List[dict]:
-    query = f"{ticker} B3 OR {ticker} FII OR {ticker} ação"
+def _noticias_google(ticker: str, limite: int, query: Optional[str] = None) -> List[dict]:
+    busca = query or f"{ticker} B3 OR {ticker} FII OR {ticker} ação"
     url = (
         "https://news.google.com/rss/search?"
-        f"q={quote_plus(query)}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+        f"q={quote_plus(busca)}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
     )
     itens: List[dict] = []
     try:
@@ -151,12 +212,14 @@ def _noticias_google(ticker: str, limite: int) -> List[dict]:
             if not titulo:
                 continue
             fonte = item.findtext("source") or "Google News"
+            resumo = _limpar_titulo(item.findtext("description") or "")
             itens.append(
                 {
                     "titulo": titulo,
                     "fonte": fonte,
                     "link": item.findtext("link") or "",
                     "origem": "Google News",
+                    "resumo": resumo[:400],
                 }
             )
             if len(itens) >= limite:
@@ -229,7 +292,9 @@ def buscar_noticias(ticker: str, limite: int = 8) -> List[dict]:
     ticker = (ticker or "").upper().replace(".SA", "").strip()
     vistos = set()
     juntos: List[dict] = []
+    query_queda = f"{ticker} (queda OR recua OR caiu OR desvaloriza)"
     for bloco in (
+        _noticias_google(ticker, limite, query_queda),
         _noticias_infomoney(ticker, limite),
         _noticias_yahoo(ticker, limite),
         _noticias_google(ticker, limite),
@@ -245,8 +310,35 @@ def buscar_noticias(ticker: str, limite: int = 8) -> List[dict]:
     return juntos
 
 
+def _explicar_com_manchetes(ticker: str, queda: Dict, noticias: List[dict]) -> tuple[str, str]:
+    """Monta o motivo só com o que as manchetes dizem. Sem inventar fato."""
+    ordenadas = sorted(noticias, key=lambda item: _score_noticia(ticker, item), reverse=True)
+    principal = ordenadas[0]
+    pior = queda.get("pior_pct")
+    disparos = queda.get("disparos") or []
+    trecho_queda = (
+        f"{ticker} caiu {pior:.1f}% frente a {', '.join(disparos)}."
+        if pior is not None and disparos
+        else f"{ticker} caiu {LIMITE_QUEDA_PCT:.0f}% ou mais."
+    )
+    fonte = principal.get("fonte") or "N/D"
+    linhas = [
+        trecho_queda,
+        f"Motivo mais citado nas manchetes: {principal.get('titulo') or 'N/D'} ({fonte}).",
+    ]
+    detalhe = str(principal.get("resumo") or "").strip()
+    if detalhe:
+        linhas.append(detalhe)
+    if _score_noticia(ticker, principal) < 4:
+        linhas.append(
+            "As manchetes encontradas nao citam com clareza um fato especifico da queda; "
+            "o texto acima e o mais proximo disponivel, sem inventar causa."
+        )
+    return "\n".join(linhas), str(principal.get("titulo") or "N/D")
+
+
 def montar_resumo(ticker: str, queda: Dict, noticias: Iterable[dict]) -> Dict:
-    """Texto curto: o que caiu e o que as notícias dizem. Motivo ausente = N/D."""
+    """Texto curto: o que caiu e o motivo extraído das manchetes. Sem notícia = N/D."""
     noticias = list(noticias or [])
     pior = queda.get("pior_pct")
     disparos = queda.get("disparos") or []
@@ -261,12 +353,7 @@ def montar_resumo(ticker: str, queda: Dict, noticias: Iterable[dict]) -> Dict:
             "nos parâmetros disponíveis."
         )
     if noticias:
-        bullets = [f"- {n['titulo']} ({n.get('fonte') or 'N/D'})" for n in noticias[:6]]
-        motivo = (
-            "Manchetes recentes (associação temporal, não prova de causa):\n"
-            + "\n".join(bullets)
-        )
-        motivo_curto = noticias[0]["titulo"]
+        motivo, motivo_curto = _explicar_com_manchetes(ticker, queda, noticias)
     else:
         motivo = (
             "N/D — não há manchetes recentes o bastante para explicar a queda. "
@@ -282,6 +369,73 @@ def montar_resumo(ticker: str, queda: Dict, noticias: Iterable[dict]) -> Dict:
         "queda": queda,
         "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
     }
+
+
+def complementar_motivo_com_ia(resumo: Dict) -> Dict:
+    """Se houver chave de IA, resume as manchetes num motivo em 2-4 frases."""
+    noticias = resumo.get("noticias") or []
+    if not noticias:
+        return resumo
+    try:
+        from vigia import OPENROUTER_URL, SITE_PADRAO, _chave_llm
+    except Exception:
+        return resumo
+    cred = _chave_llm()
+    if not cred:
+        return resumo
+    token, url, modelo = cred
+    ticker = resumo.get("ticker") or ""
+    pior = (resumo.get("queda") or {}).get("pior_pct")
+    bullets = []
+    for item in noticias[:8]:
+        linha = f"- {item.get('titulo')} ({item.get('fonte') or 'N/D'})"
+        if item.get("resumo"):
+            linha += f" | {item['resumo']}"
+        bullets.append(linha)
+    corpo = {
+        "model": modelo,
+        "temperature": 0.1,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Explique quedas de acoes e FIIs da B3. Use APENAS as manchetes. "
+                    "Responda em portugues, 2 a 4 frases, dizendo por que o ativo caiu. "
+                    "Se as manchetes nao explicarem, comece com N/D. "
+                    "Nao invente fato, numero nem recomendacao de compra."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Ativo: {ticker}. Queda: {pior if pior is not None else 'N/D'}%.\n"
+                    f"{resumo.get('abertura') or ''}\nManchetes:\n" + "\n".join(bullets)
+                ),
+            },
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    if url == OPENROUTER_URL:
+        headers["HTTP-Referer"] = (os.environ.get("VIGIA_URL") or SITE_PADRAO).rstrip("/")
+        headers["X-Title"] = "Monitor de FIIs"
+    try:
+        resp = requests.post(url, headers=headers, json=corpo, timeout=25)
+        resp.raise_for_status()
+        texto = (
+            resp.json().get("choices", [{}])[0].get("message", {}).get("content") or ""
+        ).strip()
+    except Exception as exc:
+        logger.warning("IA nao gerou motivo de %s: %s", ticker, exc)
+        return resumo
+    if not texto:
+        return resumo
+    resumo["motivo"] = texto
+    resumo["motivo_curto"] = texto.split("\n", 1)[0][:220]
+    resumo["motivo_ia"] = True
+    return resumo
 
 
 def _pdf_txt(texto: str) -> str:
@@ -356,7 +510,7 @@ class QuedaPDF(FPDF):
         self.cell(
             self.epw,
             8,
-            "Manchetes sao correlacao temporal, nao prova de causa. Sem noticia = N/D.",
+            "Motivo extraido das manchetes. Sem noticia = N/D. Nao e recomendacao.",
             align="C",
             new_x=XPos.LMARGIN,
             new_y=YPos.TOP,
@@ -385,6 +539,21 @@ def gerar_pdf_queda_bytes(resumo: Dict) -> bytes:
     _bloco(pdf, resumo.get("abertura") or "", 6)
     pdf.ln(3)
 
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(180, 60, 50)
+    pdf.cell(
+        pdf.epw,
+        8,
+        "Motivo da queda",
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
+    )
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(50, 50, 50)
+    _bloco(pdf, resumo.get("motivo") or "N/D", 6)
+    pdf.ln(3)
+
     linhas = [
         ("Preco atual", _fmt_preco(queda.get("preco_atual"))),
         ("Preco de compra", _fmt_preco(queda.get("preco_compra"))),
@@ -408,26 +577,15 @@ def gerar_pdf_queda_bytes(resumo: Dict) -> bytes:
             new_y=YPos.NEXT,
         )
 
-    pdf.ln(4)
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(
-        pdf.epw,
-        8,
-        "Por que caiu (noticias)",
-        new_x=XPos.LMARGIN,
-        new_y=YPos.NEXT,
-    )
-    pdf.set_font("Helvetica", "", 10)
-    _bloco(pdf, resumo.get("motivo") or "N/D", 6)
-
     noticias = resumo.get("noticias") or []
     if noticias:
         pdf.ln(3)
         pdf.set_x(pdf.l_margin)
         pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(pdf.epw, 7, "Fontes", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(pdf.epw, 7, "Manchetes usadas", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(50, 50, 50)
         for item in noticias:
             linha = f"* {item.get('fonte')}: {item.get('titulo')}"
             _bloco(pdf, linha, 5)
@@ -471,7 +629,7 @@ def analisar_posicao_queda(ticker: str, posicao: Dict, historico=None) -> Dict:
 def relatorio_queda(ticker: str, posicao: Dict, historico=None) -> Dict:
     queda = analisar_posicao_queda(ticker, posicao, historico=historico)
     noticias = buscar_noticias(ticker) if queda.get("atingiu") else []
-    resumo = montar_resumo(ticker, queda, noticias)
+    resumo = complementar_motivo_com_ia(montar_resumo(ticker, queda, noticias))
     try:
         resumo["pdf"] = gerar_pdf_queda_bytes(resumo)
     except Exception as exc:
@@ -509,7 +667,7 @@ def verificar_quedas_carteira(db, posicoes: Iterable[dict], enviar_whatsapp: boo
             novo_estado.pop(ticker, None)
             continue
         noticias = buscar_noticias(ticker)
-        resumo = montar_resumo(ticker, queda, noticias)
+        resumo = complementar_motivo_com_ia(montar_resumo(ticker, queda, noticias))
         try:
             resumo["pdf"] = gerar_pdf_queda_bytes(resumo)
         except Exception as exc:

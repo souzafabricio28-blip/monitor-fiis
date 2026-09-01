@@ -1,5 +1,6 @@
 from queda_report import (
     _parse_infomoney_posts,
+    complementar_motivo_com_ia,
     gatilhos_de_queda,
     gerar_pdf_queda_bytes,
     montar_resumo,
@@ -39,6 +40,26 @@ def test_resumo_usa_manchete():
     )
     assert "corte de produção" in resumo["motivo"]
     assert resumo["motivo_curto"].startswith("Petrobras")
+    assert "Motivo mais citado" in resumo["motivo"]
+
+
+def test_motivo_prioriza_manchete_de_queda():
+    queda = gatilhos_de_queda(80, preco_compra=100)
+    resumo = montar_resumo(
+        "MXRF11",
+        queda,
+        [
+            {"titulo": "Selic permanece e mercado discute fundos", "fonte": "Geral"},
+            {
+                "titulo": "MXRF11 recua apos resultado abaixo do esperado",
+                "fonte": "InfoMoney",
+                "resumo": "O fundo caiu no pregao apos numeros fracos de inadimplencia.",
+            },
+        ],
+    )
+    assert "recua" in resumo["motivo_curto"].casefold()
+    assert "inadimplencia" in resumo["motivo"].casefold()
+    assert "MXRF11 caiu" in resumo["motivo"]
 
 
 def test_pdf_queda_bytes():
@@ -102,3 +123,41 @@ def test_parse_infomoney_posts():
     assert itens[0]["origem"] == "InfoMoney"
     assert "caiu" in itens[0]["resumo"]
     assert itens[0]["link"].startswith("https://www.infomoney.com.br/")
+
+
+def test_ia_substitui_motivo_quando_ha_chave(monkeypatch):
+    queda = gatilhos_de_queda(80, preco_compra=100)
+    resumo = montar_resumo(
+        "PETR4",
+        queda,
+        [{"titulo": "Petrobras anuncia corte de producao", "fonte": "Valor"}],
+    )
+
+    monkeypatch.setattr(
+        "vigia._chave_llm",
+        lambda: ("tok", "https://openrouter.ai/api/v1/chat/completions", "openai/gpt-4o-mini"),
+    )
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "A queda veio do corte de producao anunciado pela Petrobras, "
+                                "segundo a manchete do Valor."
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("queda_report.requests.post", lambda *a, **k: _Resp())
+    out = complementar_motivo_com_ia(resumo)
+    assert out["motivo_ia"] is True
+    assert "corte de producao" in out["motivo"].casefold()
+    assert out["motivo_curto"].startswith("A queda veio")
