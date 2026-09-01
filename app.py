@@ -590,27 +590,47 @@ def exibir_carteira():
                 if cot.get("preco_atual") is not None:
                     precos[ticker] = float(cot["preco_atual"])
 
+        st.caption(
+            "Em cada linha: altere a **quantidade** e clique em **Salvar**, "
+            "ou use **Excluir** para tirar o ativo da carteira "
+            "(registra venda pelo preço médio; o histórico permanece)."
+        )
+
         def _lista(titulo, pred):
             st.subheader(titulo)
             linhas = [row for _, row in carteira.iterrows() if pred(str(row["ticker"]).upper())]
             if not linhas:
                 st.info("Nenhuma posição neste grupo.")
                 return
+            h1, h2, h3, h4, h5, h6 = st.columns([1.4, 1.1, 1, 1.2, 0.9, 0.9])
+            h1.caption("Ticker")
+            h2.caption("Qtd")
+            h3.caption("PM")
+            h4.caption("Total / variação")
+            h5.caption("Salvar")
+            h6.caption("Excluir")
             for row in linhas:
-                ticker = row["ticker"]
+                ticker = str(row["ticker"]).upper()
                 qtd = int(row["quantidade"])
                 preco_compra = float(row["preco_compra"])
                 total = qtd * preco_compra
-                preco_atual = precos.get(str(ticker).upper())
+                preco_atual = precos.get(ticker)
                 lucro = qtd * preco_atual - total if preco_atual is not None else None
                 variacao = (
                     (preco_atual - preco_compra) / preco_compra * 100
                     if preco_atual is not None and preco_compra
                     else None
                 )
-                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
+                c1, c2, c3, c4, c5, c6 = st.columns([1.4, 1.1, 1, 1.2, 0.9, 0.9])
                 c1.markdown(f"**{ticker}**")
-                c2.write(f"{qtd} cotas")
+                nova_qtd = c2.number_input(
+                    f"Qtd {ticker}",
+                    min_value=0,
+                    value=qtd,
+                    step=1,
+                    key=f"qtd_edit_{ticker}",
+                    label_visibility="collapsed",
+                )
                 c3.write(f"R$ {preco_compra:.2f}")
                 c4.write(f"R$ {total:,.2f}")
                 c4.caption(
@@ -619,14 +639,54 @@ def exibir_carteira():
                     else "Cotação indisponível — ganho N/D"
                 )
                 if c5.button(
-                    "Encerrar ao PM",
-                    key=f"remover_{ticker}",
-                    help="Registra a venda total pelo preço médio atual; prefira a venda com preço real no formulário.",
+                    "Salvar",
+                    key=f"salvar_qtd_{ticker}",
+                    help="Atualiza a quantidade mantendo o preço médio (compra/venda da diferença).",
                     width="stretch",
                 ):
-                    st.session_state.db.remover_fii(ticker)
-                    _invalidar_analise()
-                    st.rerun()
+                    try:
+                        acao = st.session_state.db.ajustar_quantidade(
+                            ticker, int(nova_qtd)
+                        )
+                        st.session_state.pop(f"qtd_edit_{ticker}", None)
+                        st.session_state.pop(f"confirm_excluir_{ticker}", None)
+                        _invalidar_analise()
+                        if acao == "inalterado":
+                            st.info(f"{ticker}: quantidade já era {qtd}.")
+                        elif acao == "excluido":
+                            st.success(f"{ticker} excluído da carteira.")
+                        else:
+                            st.success(
+                                f"{ticker}: quantidade {qtd} → {int(nova_qtd)}."
+                            )
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+
+                confirmar = st.session_state.get(f"confirm_excluir_{ticker}", False)
+                if not confirmar:
+                    if c6.button(
+                        "Excluir",
+                        key=f"excluir_{ticker}",
+                        help="Remove o ativo da carteira (venda total pelo PM).",
+                        width="stretch",
+                    ):
+                        st.session_state[f"confirm_excluir_{ticker}"] = True
+                        st.rerun()
+                else:
+                    if c6.button(
+                        "Confirmar",
+                        key=f"confirma_excluir_{ticker}",
+                        type="primary",
+                        help=f"Confirma a exclusão de {ticker}.",
+                        width="stretch",
+                    ):
+                        st.session_state.db.remover_fii(ticker)
+                        st.session_state.pop(f"qtd_edit_{ticker}", None)
+                        st.session_state.pop(f"confirm_excluir_{ticker}", None)
+                        _invalidar_analise()
+                        st.success(f"{ticker} excluído da carteira.")
+                        st.rerun()
 
         _lista("Fundos imobiliários", eh_fii)
         _lista("Ações", lambda t: not eh_fii(t))
