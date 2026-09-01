@@ -6,7 +6,7 @@ services:
     region: oregon
     branch: master
     autoDeploy: true
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install --no-cache-dir -r requirements.txt && python -c "from fpdf import FPDF; import pypdf"
     startCommand: streamlit run app.py --server.port=$PORT --server.headless=true --server.address=0.0.0.0 --browser.gatherUsageStats=false
     healthCheckPath: /_stcore/health
     envVars:
