@@ -49,6 +49,7 @@ from queda_report import (
 )
 from rebalanceamento import registrar_plano_no_banco
 from scoring import calcular_score
+from custodia_nubank import sincronizar_custodia_nubank
 from seed_local import garantir_carteira_local, garantir_plano_local
 from whatsapp_notifier import aplicar_segredo_whatsapp, verificar_alertas_watchlist
 from ui_theme import aplicar_plotly, cabecalho_ativo, grafico as _grafico, logo_app, pagina
@@ -179,6 +180,17 @@ def main():
             st.caption(str(e))
             st.stop()
     aplicar_segredo_whatsapp(st.session_state.db)
+    if not st.session_state.get("_custodia_nubank_ok"):
+        sync = sincronizar_custodia_nubank(st.session_state.db)
+        st.session_state["_custodia_nubank_ok"] = True
+        if sync.get("aplicado"):
+            _invalidar_analise()
+            st.session_state["_custodia_nubank_msg"] = sync.get("alteracoes") or []
+    if st.session_state.pop("_custodia_nubank_msg", None) is not None:
+        st.success(
+            "Carteira alinhada ao extrato Nubank (01/09/2026): "
+            "quantidades atualizadas, ITSA3→ITSA4 e ativos ausentes removidos."
+        )
     if not st.session_state.get("_plano_local_ok"):
         garantir_plano_local(st.session_state.db)
         st.session_state["_plano_local_ok"] = True
