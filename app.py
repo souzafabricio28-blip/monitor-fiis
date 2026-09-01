@@ -390,6 +390,8 @@ def exibir_quedas():
                 key=f"dl_queda_{ticker}",
                 width="stretch",
             )
+        elif resumo.get("pdf_erro"):
+            st.warning("Não foi possível gerar o PDF desta queda. As notícias acima continuam válidas.")
 
 
 def _tabela_proventos(df_bloco: pd.DataFrame) -> pd.DataFrame:

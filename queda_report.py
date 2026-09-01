@@ -18,6 +18,7 @@ from urllib.parse import quote_plus
 import requests
 import yfinance as yf
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 
 logger = logging.getLogger(__name__)
 
@@ -311,36 +312,54 @@ def _quebrar_tokens_longos(texto: str, max_len: int = 70) -> str:
 def _bloco(pdf: FPDF, texto: str, h: float = 5) -> None:
     """multi_cell a partir da margem esquerda (fpdf2 deixa o cursor à direita)."""
     pdf.set_x(pdf.l_margin)
-    largura = max(pdf.epw, 10)
-    pdf.multi_cell(largura, h, _pdf_txt(_quebrar_tokens_longos(texto)))
+    largura = pdf.w - pdf.l_margin - pdf.r_margin
+    if largura < 20:
+        pdf.add_page()
+        pdf.set_x(pdf.l_margin)
+        largura = pdf.w - pdf.l_margin - pdf.r_margin
+    corpo = _pdf_txt(_quebrar_tokens_longos(texto or "N/D")) or "N/D"
+    pdf.multi_cell(largura, h, corpo, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_x(pdf.l_margin)
 
 
 class QuedaPDF(FPDF):
     def header(self):
-        self.set_font("Arial", "B", 16)
+        self.set_x(self.l_margin)
+        self.set_font("Helvetica", "B", 16)
         self.set_text_color(102, 126, 234)
-        self.cell(0, 10, "Relatorio de queda (>= 10%)", ln=True, align="C")
-        self.set_font("Arial", "", 10)
+        self.cell(
+            self.epw,
+            10,
+            "Relatorio de queda (>= 10%)",
+            align="C",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+        )
+        self.set_font("Helvetica", "", 10)
         self.set_text_color(100, 100, 100)
         self.cell(
-            0,
+            self.epw,
             8,
             f"Monitor de FIIs · {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-            ln=True,
             align="C",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
         )
         self.ln(4)
+        self.set_x(self.l_margin)
 
     def footer(self):
         self.set_y(-15)
-        self.set_font("Arial", "", 8)
+        self.set_x(self.l_margin)
+        self.set_font("Helvetica", "", 8)
         self.set_text_color(140, 140, 140)
         self.cell(
-            0,
+            self.epw,
             8,
             "Manchetes sao correlacao temporal, nao prova de causa. Sem noticia = N/D.",
             align="C",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.TOP,
         )
 
 
@@ -350,11 +369,18 @@ def gerar_pdf_queda_bytes(resumo: Dict) -> bytes:
     pdf.add_page()
     queda = resumo.get("queda") or {}
 
-    pdf.set_font("Arial", "B", 18)
+    pdf.set_font("Helvetica", "B", 18)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(0, 12, _pdf_txt(resumo.get("ticker") or ""), ln=True)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(
+        pdf.epw,
+        12,
+        _pdf_txt(resumo.get("ticker") or ""),
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
+    )
 
-    pdf.set_font("Arial", "", 11)
+    pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(50, 50, 50)
     _bloco(pdf, resumo.get("abertura") or "", 6)
     pdf.ln(3)
@@ -368,30 +394,45 @@ def gerar_pdf_queda_bytes(resumo: Dict) -> bytes:
         ("vs fechamento anterior", _fmt_pct(queda.get("vs_anterior"))),
         ("vs maxima recente", _fmt_pct(queda.get("vs_maxima"))),
     ]
-    pdf.set_font("Arial", "", 10)
+    pdf.set_font("Helvetica", "", 10)
     for rotulo, valor in linhas:
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(55, 6, _pdf_txt(rotulo) + ":", 0, 0)
-        pdf.set_font("Arial", "", 10)
-        pdf.cell(0, 6, _pdf_txt(valor), ln=True)
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(55, 6, _pdf_txt(rotulo) + ":", new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(
+            pdf.epw - 55,
+            6,
+            _pdf_txt(valor),
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+        )
 
     pdf.ln(4)
-    pdf.set_font("Arial", "B", 13)
-    pdf.cell(0, 8, "Por que caiu (noticias)", ln=True)
-    pdf.set_font("Arial", "", 10)
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(
+        pdf.epw,
+        8,
+        "Por que caiu (noticias)",
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
+    )
+    pdf.set_font("Helvetica", "", 10)
     _bloco(pdf, resumo.get("motivo") or "N/D", 6)
 
     noticias = resumo.get("noticias") or []
     if noticias:
         pdf.ln(3)
-        pdf.set_font("Arial", "B", 11)
-        pdf.cell(0, 7, "Fontes", ln=True)
-        pdf.set_font("Arial", "", 9)
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(pdf.epw, 7, "Fontes", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", "", 9)
         for item in noticias:
             linha = f"* {item.get('fonte')}: {item.get('titulo')}"
             _bloco(pdf, linha, 5)
 
-    raw = pdf.output(dest="S")
+    raw = pdf.output()
     if isinstance(raw, str):
         return raw.encode("latin-1")
     return bytes(raw)
@@ -431,7 +472,12 @@ def relatorio_queda(ticker: str, posicao: Dict, historico=None) -> Dict:
     queda = analisar_posicao_queda(ticker, posicao, historico=historico)
     noticias = buscar_noticias(ticker) if queda.get("atingiu") else []
     resumo = montar_resumo(ticker, queda, noticias)
-    resumo["pdf"] = gerar_pdf_queda_bytes(resumo)
+    try:
+        resumo["pdf"] = gerar_pdf_queda_bytes(resumo)
+    except Exception as exc:
+        logger.exception("Falha ao gerar PDF de queda de %s", ticker)
+        resumo["pdf"] = None
+        resumo["pdf_erro"] = str(exc)
     return resumo
 
 
@@ -464,7 +510,12 @@ def verificar_quedas_carteira(db, posicoes: Iterable[dict], enviar_whatsapp: boo
             continue
         noticias = buscar_noticias(ticker)
         resumo = montar_resumo(ticker, queda, noticias)
-        resumo["pdf"] = gerar_pdf_queda_bytes(resumo)
+        try:
+            resumo["pdf"] = gerar_pdf_queda_bytes(resumo)
+        except Exception as exc:
+            logger.exception("Falha ao gerar PDF de queda de %s", ticker)
+            resumo["pdf"] = None
+            resumo["pdf_erro"] = str(exc)
         relatorios.append(resumo)
 
         chave_dia = datetime.now().strftime("%Y-%m-%d")

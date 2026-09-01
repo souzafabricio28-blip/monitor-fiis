@@ -71,6 +71,22 @@ def test_pdf_queda_varias_manchetes_longas():
     assert len(pdf) > 200
 
 
+def test_pdf_queda_muitas_manchetes_quebra_pagina():
+    """Cabeçalho na 2ª página não pode deixar o cursor sem largura."""
+    queda = gatilhos_de_queda(80, preco_compra=100)
+    noticias = [
+        {
+            "titulo": f"Manchete {i} " + ("queda de fundos imobiliarios no mercado " * 6),
+            "fonte": f"Fonte {i}",
+        }
+        for i in range(20)
+    ]
+    resumo = montar_resumo("HGLG11", queda, noticias)
+    pdf = gerar_pdf_queda_bytes(resumo)
+    assert pdf[:4] == b"%PDF"
+    assert b"/Type /Page" in pdf or b"/Type/Page" in pdf
+
+
 def test_parse_infomoney_posts():
     posts = [
         {
