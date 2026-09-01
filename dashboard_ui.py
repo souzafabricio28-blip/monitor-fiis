@@ -13,7 +13,6 @@ from criterios import SETORES_ALVO, avaliar_diversificacao_setores, classe_ativo
 from excel_export import exportar_carteira_bytes
 from fiis_database import FIIS_POPULARES, buscar_fii_por_ticker
 from market_data import buscar_cotacoes_lote
-from pdf_report import gerar_relatorio_pdf_bytes
 from portfolio import rentabilidade_total
 from ui_theme import (
     ACOES_COR,
@@ -518,6 +517,8 @@ def _exportacoes(analise: dict):
         )
     if d2.button("Gerar PDF", width="stretch", key="gerar_pdf"):
         try:
+            from pdf_report import gerar_relatorio_pdf_bytes
+
             st.session_state["_pdf_carteira"] = gerar_relatorio_pdf_bytes(analise)
         except Exception:
             st.session_state["_pdf_carteira"] = None
