@@ -49,7 +49,11 @@ from queda_report import (
 )
 from rebalanceamento import registrar_plano_no_banco
 from scoring import calcular_score
-from custodia_nubank import sincronizar_custodia_nubank
+from custodia_nubank import (
+    aplicar_extrato_nubank,
+    comparar_com_carteira,
+    parse_extrato_nubank_pdf,
+)
 from seed_local import garantir_carteira_local, garantir_plano_local
 from whatsapp_notifier import aplicar_segredo_whatsapp, verificar_alertas_watchlist
 from ui_theme import aplicar_plotly, cabecalho_ativo, grafico as _grafico, logo_app, pagina
@@ -180,17 +184,6 @@ def main():
             st.caption(str(e))
             st.stop()
     aplicar_segredo_whatsapp(st.session_state.db)
-    if not st.session_state.get("_custodia_nubank_ok"):
-        sync = sincronizar_custodia_nubank(st.session_state.db)
-        st.session_state["_custodia_nubank_ok"] = True
-        if sync.get("aplicado"):
-            _invalidar_analise()
-            st.session_state["_custodia_nubank_msg"] = sync.get("alteracoes") or []
-    if st.session_state.pop("_custodia_nubank_msg", None) is not None:
-        st.success(
-            "Carteira alinhada ao extrato Nubank (01/09/2026): "
-            "quantidades atualizadas, ITSA3→ITSA4 e ativos ausentes removidos."
-        )
     if not st.session_state.get("_plano_local_ok"):
         garantir_plano_local(st.session_state.db)
         st.session_state["_plano_local_ok"] = True
@@ -553,6 +546,91 @@ def exibir_carteira():
         "Fundos (tickers 11/12, ex.: MXRF11) e ações (ex.: PETR4) ficam em listas separadas. "
         "A classe é detectada pelo ticker.",
     )
+
+    with st.expander("Importar extrato Nubank (PDF)", expanded=True):
+        st.caption(
+            "Envie o **Extrato de Custódia** da Nu Investimentos. "
+            "O sistema lê as posições, compara com a carteira, "
+            "**adiciona** o que falta e **atualiza quantidade + valor** do que já existe."
+        )
+        arquivo = st.file_uploader(
+            "PDF do extrato",
+            type=["pdf"],
+            key="upload_extrato_nubank",
+            help="Arquivo gerado em Nu Investimentos → Extrato de Custódia",
+        )
+        remover_ausentes = st.checkbox(
+            "Excluir da carteira o que não estiver no extrato",
+            value=False,
+            key="extrato_remover_ausentes",
+        )
+        if arquivo is not None:
+            try:
+                bruto = arquivo.getvalue()
+                parseado = parse_extrato_nubank_pdf(bruto)
+                comparacao = comparar_com_carteira(
+                    st.session_state.db, parseado["posicoes"]
+                )
+                st.write(
+                    f"Custódia em **{parseado.get('data_custodia') or 'N/D'}** — "
+                    f"**{parseado['total_posicoes']}** ativos no extrato."
+                )
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Novos", len(comparacao["novos"]))
+                c2.metric("Atualizar", len(comparacao["atualizar"]))
+                c3.metric("Iguais", len(comparacao["iguais"]))
+                c4.metric("Só na carteira", len(comparacao["ausentes_na_custodia"]))
+
+                linhas_previa = []
+                for ticker, info in sorted(parseado["posicoes"].items()):
+                    linhas_previa.append(
+                        {
+                            "Ticker": ticker,
+                            "Qtd extrato": int(info["quantidade"]),
+                            "Valor unit. R$": float(info["preco_unitario"]),
+                            "Saldo R$": float(info["saldo_bruto"]),
+                        }
+                    )
+                st.dataframe(
+                    linhas_previa, width="stretch", hide_index=True
+                )
+                if comparacao["novos"]:
+                    st.caption("Serão incluídos: " + ", ".join(comparacao["novos"]))
+                if comparacao["atualizar"]:
+                    st.caption(
+                        "Serão atualizados: "
+                        + ", ".join(a["ticker"] for a in comparacao["atualizar"])
+                    )
+                if remover_ausentes and comparacao["ausentes_na_custodia"]:
+                    st.warning(
+                        "Serão excluídos: "
+                        + ", ".join(comparacao["ausentes_na_custodia"])
+                    )
+
+                if st.button(
+                    "Aplicar extrato na carteira",
+                    type="primary",
+                    width="stretch",
+                    key="aplicar_extrato_nubank",
+                ):
+                    resultado = aplicar_extrato_nubank(
+                        st.session_state.db,
+                        parseado,
+                        remover_ausentes=remover_ausentes,
+                        nome_arquivo=arquivo.name,
+                    )
+                    _invalidar_analise()
+                    st.success(
+                        f"Extrato aplicado ({resultado['posicoes']} ativos). "
+                        + (
+                            "; ".join(resultado["alteracoes"][:8])
+                            if resultado.get("alteracoes")
+                            else ""
+                        )
+                    )
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"Não foi possível ler o PDF: {exc}")
 
     with st.form("registrar_movimentacao", clear_on_submit=True):
         st.subheader("Registrar movimentação")
