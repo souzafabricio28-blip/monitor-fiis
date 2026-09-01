@@ -120,6 +120,31 @@ PALAVRAS_QUEDA = (
     "desconto",
 )
 
+PALAVRAS_COLETANEA = (
+    "agenda completa",
+    "veja a agenda",
+    "ações para acompanhar",
+    "acoes para acompanhar",
+    "e mais ações",
+    "e mais acoes",
+    "veja valor por ação",
+)
+
+NOMES_EMPRESA = {
+    "PETR3": ("petrobras",),
+    "PETR4": ("petrobras",),
+    "VALE3": ("vale",),
+    "ITSA3": ("itaúsa", "itausa"),
+    "ITSA4": ("itaúsa", "itausa"),
+    "BBAS3": ("banco do brasil",),
+    "TAEE11": ("taesa",),
+    "WEGE3": ("weg",),
+    "SAPR4": ("sanepar",),
+    "KLBN4": ("klabin",),
+}
+
+_RE_TICKER = re.compile(r"\b([a-z]{4}\d{1,2})\b", re.I)
+
 
 def _blob_noticia(item: dict) -> str:
     return " ".join(
@@ -128,19 +153,73 @@ def _blob_noticia(item: dict) -> str:
     ).casefold()
 
 
+def _tickers_mencionados(texto: str) -> set:
+    return {m.group(1).upper() for m in _RE_TICKER.finditer(texto or "")}
+
+
+def _tickers_irmaos(ticker: str) -> set:
+    codigo = (ticker or "").upper()
+    if len(codigo) < 5:
+        return set()
+    base, sufixo = codigo[:4], codigo[4:]
+    if sufixo not in {"3", "4", "5", "6", "11", "12"}:
+        return set()
+    return {base + s for s in ("3", "4", "5", "6", "11", "12") if base + s != codigo}
+
+
+def _noticia_do_ticker(ticker: str, item: dict) -> bool:
+    """ITSA3 não herda manchete de ITSA4, Petrobras nem agenda genérica."""
+    codigo = (ticker or "").upper().replace(".SA", "").strip()
+    if not codigo:
+        return False
+    blob = _blob_noticia(item)
+    titulo = str(item.get("titulo") or "")
+    resumo = str(item.get("resumo") or "")
+    citados = _tickers_mencionados(f"{titulo} {resumo}")
+    if codigo in citados or codigo.casefold() in blob:
+        if any(p in blob for p in PALAVRAS_COLETANEA) and codigo not in citados:
+            return False
+        return True
+    if any(p in blob for p in PALAVRAS_COLETANEA):
+        return False
+    irmaos = _tickers_irmaos(codigo)
+    if citados & irmaos and codigo not in citados:
+        return False
+    if citados and codigo not in citados:
+        return False
+    nomes = NOMES_EMPRESA.get(codigo) or ()
+    return any(nome in blob for nome in nomes)
+
+
 def _score_noticia(ticker: str, item: dict) -> int:
     blob = _blob_noticia(item)
     codigo = (ticker or "").casefold()
     score = 0
     if codigo and codigo in blob:
         score += 6
-    elif codigo and codigo[:4] in blob:
-        score += 4
+    elif any(nome in blob for nome in (NOMES_EMPRESA.get(ticker.upper()) or ())):
+        score += 3
     if any(palavra in blob for palavra in PALAVRAS_QUEDA):
         score += 4
     if item.get("resumo"):
         score += 1
     return score
+
+
+def _custo_desatualizado(queda: Dict) -> bool:
+    """Só disparou vs compra, e o mercado (ontem/máxima) não caiu 10%."""
+    disparos = queda.get("disparos") or []
+    if disparos != ["preço de compra"]:
+        return False
+    vs_ant = queda.get("vs_anterior")
+    vs_max = queda.get("vs_maxima")
+    if vs_ant is None and vs_max is None:
+        return False
+    if vs_ant is not None and vs_ant <= -LIMITE_QUEDA_PCT:
+        return False
+    if vs_max is not None and vs_max <= -LIMITE_QUEDA_PCT:
+        return False
+    return True
 
 
 def _noticias_yahoo(ticker: str, limite: int) -> List[dict]:
@@ -288,18 +367,21 @@ def _noticias_infomoney(ticker: str, limite: int) -> List[dict]:
 
 
 def buscar_noticias(ticker: str, limite: int = 8) -> List[dict]:
-    """Manchetes recentes (InfoMoney + Yahoo + Google News). Sem inventar texto."""
+    """Manchetes do próprio ticker. Sem agenda genérica nem papel irmão (ITSA4 ≠ ITSA3)."""
     ticker = (ticker or "").upper().replace(".SA", "").strip()
     vistos = set()
     juntos: List[dict] = []
-    query_queda = f"{ticker} (queda OR recua OR caiu OR desvaloriza)"
+    query_queda = f'"{ticker}" (queda OR recua OR caiu OR desvaloriza)'
+    query_ticker = f'"{ticker}" B3 OR "{ticker}" ação OR "{ticker}" FII'
     for bloco in (
         _noticias_google(ticker, limite, query_queda),
-        _noticias_infomoney(ticker, limite),
+        _noticias_infomoney(ticker, max(limite, 12)),
         _noticias_yahoo(ticker, limite),
-        _noticias_google(ticker, limite),
+        _noticias_google(ticker, limite, query_ticker),
     ):
         for item in bloco:
+            if not _noticia_do_ticker(ticker, item):
+                continue
             chave = item["titulo"].casefold()
             if chave in vistos:
                 continue
@@ -339,10 +421,24 @@ def _explicar_com_manchetes(ticker: str, queda: Dict, noticias: List[dict]) -> t
 
 def montar_resumo(ticker: str, queda: Dict, noticias: Iterable[dict]) -> Dict:
     """Texto curto: o que caiu e o motivo extraído das manchetes. Sem notícia = N/D."""
-    noticias = list(noticias or [])
+    noticias = [n for n in list(noticias or []) if _noticia_do_ticker(ticker, n)]
     pior = queda.get("pior_pct")
     disparos = queda.get("disparos") or []
-    if queda.get("atingiu"):
+    custo_off = _custo_desatualizado(queda)
+    if custo_off:
+        abertura = (
+            f"{ticker} está {pior:.1f}% abaixo do preço de compra registrado, "
+            f"mas não caiu {LIMITE_QUEDA_PCT:.0f}% contra o fechamento anterior "
+            "nem contra a máxima do mês. "
+            "Isso costuma ser custo desatualizado na carteira, não um tombo de mercado."
+        )
+        motivo = (
+            "N/D — não há fato de mercado associado a essa diferença. "
+            "Confira o preço de compra da posição. O sistema não inventa o motivo."
+        )
+        motivo_curto = "Custo na carteira desatualizado"
+        noticias = []
+    elif queda.get("atingiu"):
         abertura = (
             f"{ticker} registrou queda de {pior:.1f}% "
             f"(limite {LIMITE_QUEDA_PCT:.0f}%) frente a: {', '.join(disparos)}."
@@ -352,14 +448,15 @@ def montar_resumo(ticker: str, queda: Dict, noticias: Iterable[dict]) -> Dict:
             f"{ticker} não atingiu queda de {LIMITE_QUEDA_PCT:.0f}% "
             "nos parâmetros disponíveis."
         )
-    if noticias:
-        motivo, motivo_curto = _explicar_com_manchetes(ticker, queda, noticias)
-    else:
-        motivo = (
-            "N/D — não há manchetes recentes o bastante para explicar a queda. "
-            "O sistema não inventa o motivo."
-        )
-        motivo_curto = "N/D"
+    if not custo_off:
+        if noticias:
+            motivo, motivo_curto = _explicar_com_manchetes(ticker, queda, noticias)
+        else:
+            motivo = (
+                "N/D — não há manchetes recentes do próprio ticker para explicar a queda. "
+                "O sistema não inventa o motivo."
+            )
+            motivo_curto = "N/D"
     return {
         "ticker": ticker,
         "abertura": abertura,
@@ -367,6 +464,7 @@ def montar_resumo(ticker: str, queda: Dict, noticias: Iterable[dict]) -> Dict:
         "motivo_curto": motivo_curto,
         "noticias": noticias,
         "queda": queda,
+        "custo_desatualizado": custo_off,
         "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
     }
 
@@ -374,7 +472,7 @@ def montar_resumo(ticker: str, queda: Dict, noticias: Iterable[dict]) -> Dict:
 def complementar_motivo_com_ia(resumo: Dict) -> Dict:
     """Se houver chave de IA, resume as manchetes num motivo em 2-4 frases."""
     noticias = resumo.get("noticias") or []
-    if not noticias:
+    if not noticias or resumo.get("custo_desatualizado"):
         return resumo
     try:
         from vigia import OPENROUTER_URL, SITE_PADRAO, _chave_llm
@@ -666,7 +764,7 @@ def verificar_quedas_carteira(db, posicoes: Iterable[dict], enviar_whatsapp: boo
         if not queda.get("atingiu"):
             novo_estado.pop(ticker, None)
             continue
-        noticias = buscar_noticias(ticker)
+        noticias = [] if _custo_desatualizado(queda) else buscar_noticias(ticker)
         resumo = complementar_motivo_com_ia(montar_resumo(ticker, queda, noticias))
         try:
             resumo["pdf"] = gerar_pdf_queda_bytes(resumo)
@@ -680,8 +778,13 @@ def verificar_quedas_carteira(db, posicoes: Iterable[dict], enviar_whatsapp: boo
         previa = estado.get(ticker) or {}
         ja_enviou = previa.get("dia") == chave_dia
         if enviar_whatsapp and not ja_enviou and whatsapp_configurado(db):
+            titulo = (
+                f"Custo desatualizado — {ticker}"
+                if resumo.get("custo_desatualizado")
+                else f"Queda >= 10% — {ticker}"
+            )
             enviado = WhatsAppNotifier().enviar_alerta(
-                f"Queda >= 10% — {ticker}",
+                titulo,
                 (
                     f"{resumo['abertura']}\n\n"
                     f"Manchete: {resumo['motivo_curto']}"

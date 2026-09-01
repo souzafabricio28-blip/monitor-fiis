@@ -1,4 +1,6 @@
 from queda_report import (
+    _custo_desatualizado,
+    _noticia_do_ticker,
     _parse_infomoney_posts,
     complementar_motivo_com_ia,
     gatilhos_de_queda,
@@ -31,7 +33,49 @@ def test_resumo_sem_noticia_fica_nd():
     assert "inventa" in resumo["motivo"].lower()
 
 
-def test_resumo_usa_manchete():
+def test_descarta_manchete_de_itsa4_e_agenda():
+    assert not _noticia_do_ticker(
+        "ITSA3",
+        {"titulo": "Itaúsa (ITSA4) pagará R$ 2,8 bi em proventos no dia 28; veja valor por ação"},
+    )
+    assert not _noticia_do_ticker(
+        "ITSA3",
+        {"titulo": "Petrobras, Itaú e Weg pagam dividendos em agosto; veja a agenda completa"},
+    )
+    assert not _noticia_do_ticker(
+        "ITSA3",
+        {"titulo": "Allos, Equatorial e Alupar pagam dividendos em julho; veja agenda completa"},
+    )
+    assert _noticia_do_ticker(
+        "ITSA3",
+        {"titulo": "ITSA3 recua após realização de lucros na B3"},
+    )
+
+
+def test_custo_desatualizado_nao_inventa_tombo():
+    queda = gatilhos_de_queda(
+        13.57,
+        preco_compra=26.55,
+        preco_anterior=13.60,
+        maxima_periodo=14.10,
+    )
+    assert queda["atingiu"] is True
+    assert _custo_desatualizado(queda) is True
+    resumo = montar_resumo(
+        "ITSA3",
+        queda,
+        [
+            {
+                "titulo": "Itaúsa (ITSA4) pagará R$ 2,8 bi em proventos no dia 28; veja valor por ação",
+                "fonte": "InfoMoney",
+            }
+        ],
+    )
+    assert resumo["custo_desatualizado"] is True
+    assert resumo["noticias"] == []
+    assert "custo desatualizado" in resumo["abertura"].casefold()
+    assert "ITSA4" not in resumo["motivo"]
+    assert resumo["motivo_curto"] == "Custo na carteira desatualizado"
     queda = gatilhos_de_queda(80, preco_compra=100)
     resumo = montar_resumo(
         "PETR4",
