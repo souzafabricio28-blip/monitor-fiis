@@ -26,7 +26,9 @@ def test_seed_local_so_em_sqlite_vazio(tmp_path, monkeypatch):
     assert len(db.obter_carteira()) == len(POSICOES_LOCAIS)
     assert garantir_carteira_local(db) == 0
     mxrf = db.obter_carteira().set_index("ticker").loc["MXRF11"]
-    assert int(mxrf["quantidade"]) == 40
+    assert int(mxrf["quantidade"]) == 48
+    assert "ITSA4" in set(db.obter_carteira()["ticker"].str.upper())
+    assert "RURA11" not in set(db.obter_carteira()["ticker"].str.upper())
     assert garantir_plano_local(db) > 0
     plano = db.obter_plano_rebalanceamento()
     assert not plano.empty
