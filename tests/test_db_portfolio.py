@@ -11,6 +11,26 @@ def _db_local(tmp_path, monkeypatch):
     return DatabaseManager(str(tmp_path / "teste.db"))
 
 
+def test_ajustar_quantidade_e_excluir(tmp_path, monkeypatch):
+    db = _db_local(tmp_path, monkeypatch)
+    db.registrar_movimentacao("MXRF11", "SALDO_INICIAL", 40, 9.23)
+    assert db.ajustar_quantidade("MXRF11", 40) == "inalterado"
+
+    assert db.ajustar_quantidade("MXRF11", 59) == "aumentado"
+    pos = db.obter_carteira().iloc[0]
+    assert int(pos["quantidade"]) == 59
+    assert float(pos["preco_compra"]) == 9.23
+
+    assert db.ajustar_quantidade("MXRF11", 50) == "reduzido"
+    assert int(db.obter_carteira().iloc[0]["quantidade"]) == 50
+
+    assert db.ajustar_quantidade("MXRF11", 0) == "excluido"
+    assert db.obter_carteira().empty
+    historico = db.obter_movimentacoes("MXRF11")
+    assert not historico.empty
+    assert "VENDA" in set(historico["tipo"])
+
+
 def test_movimentacoes_preco_medio_e_venda(tmp_path, monkeypatch):
     db = _db_local(tmp_path, monkeypatch)
     db.registrar_movimentacao("XPTO11", "COMPRA", 10, 10, taxas=1)
