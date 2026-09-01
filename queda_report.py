@@ -18,8 +18,20 @@ from urllib.parse import quote_plus
 
 import requests
 import yfinance as yf
-from fpdf import FPDF
-from fpdf.enums import XPos, YPos
+
+try:
+    from fpdf import FPDF
+    from fpdf.enums import XPos, YPos
+except ImportError:  # pragma: no cover - ambiente sem fpdf2
+    FPDF = object  # type: ignore[misc, assignment]
+
+    class XPos:  # type: ignore[no-redef]
+        LMARGIN = "LEFT"
+        RIGHT = "RIGHT"
+
+    class YPos:  # type: ignore[no-redef]
+        NEXT = "NEXT"
+        TOP = "TOP"
 
 logger = logging.getLogger(__name__)
 
