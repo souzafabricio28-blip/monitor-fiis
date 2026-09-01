@@ -234,13 +234,15 @@ def _montar_carteira_enriquecida(max_idade_min: int = 20):
                 "lucro_total": fii.get("lucro_com_dividendos"),
                 "lucro_total_pct": fii.get("lucro_com_dividendos_pct"),
                 "classe": "Fundo" if classe_ativo(ticker) == "fundo" else "Ação",
-                "p_vp": dados_av.get("p_vp"),
+                "p_vp": dados_av.get("p_vp") if dados_av.get("p_vp") is not None else fii.get("p_vp"),
                 "vacancia": dados_av.get("vacancia"),
                 "liquidez_diaria": dados_av.get("liquidez_diaria"),
                 "cotistas": dados_av.get("cotistas"),
                 "ultimo_rendimento": dados_av.get("ultimo_rendimento"),
-                "variacao_12m": dados_av.get("variacao_12m"),
-                "p_l": dados_av.get("p_l"),
+                "variacao_12m": dados_av.get("variacao_12m")
+                if dados_av.get("variacao_12m") is not None
+                else fii.get("variacao_12m"),
+                "p_l": dados_av.get("p_l") if dados_av.get("p_l") is not None else fii.get("p_l"),
             }
         )
     return itens, analise

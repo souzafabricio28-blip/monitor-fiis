@@ -261,6 +261,7 @@ def _cotacao_do_investidor10(ticker: str) -> Optional[Dict]:
         "dy": inv.get("dy"),
         "p_l": inv.get("p_l"),
         "p_vp": inv.get("p_vp"),
+        "variacao_12m": inv.get("variacao_12m"),
         "fonte": "Investidor10",
         "url_investidor10": inv.get("url"),
         "coletado_em": _agora_iso(),

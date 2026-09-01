@@ -88,7 +88,13 @@ def _cotacoes_em_paralelo(
             continue
         vistos.append(ticker)
         cached = db.get_cache(ticker, max_idade_min) if max_idade_min else None
-        if cached and "erro" not in cached and cached.get("preco_atual") is not None:
+        fonte_cache = str((cached or {}).get("fonte") or "").casefold()
+        if (
+            cached
+            and "erro" not in cached
+            and cached.get("preco_atual") is not None
+            and "investidor10" in fonte_cache
+        ):
             resultado[ticker] = cached
         else:
             pendentes.append(ticker)
@@ -111,6 +117,8 @@ def _cotacoes_em_paralelo(
                 dados["p_l"] = cotacao["p_l"]
             if cotacao.get("p_vp") is not None:
                 dados["p_vp"] = cotacao["p_vp"]
+            if cotacao.get("variacao_12m") is not None:
+                dados["variacao_12m"] = cotacao["variacao_12m"]
             resultado[ticker] = dados
             try:
                 db.set_cache(ticker, dados)
@@ -256,6 +264,10 @@ def analisar_carteira(db: DatabaseManager | None = None, max_idade_min: int = 20
             "fonte": dados.get("fonte"),
             "coletado_em": dados.get("coletado_em"),
             "divergencias": dados.get("divergencias", []),
+            "p_vp": dados.get("p_vp"),
+            "p_l": dados.get("p_l"),
+            "variacao_12m": dados.get("variacao_12m"),
+            "url_investidor10": dados.get("url_investidor10"),
         }
         analise["fiis"].append(item)
 
